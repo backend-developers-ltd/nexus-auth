@@ -1,0 +1,30 @@
+---
+services:
+  auth:
+    build:
+      context: ./auth
+      dockerfile: Dockerfile
+    volumes:
+      - ./certs:/app/certs:ro
+    restart: unless-stopped
+    logging: &logging
+      driver: journald
+      options:
+        tag: '{% raw %}{{.Name}}{% endraw %}'
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/config_helpers:/etc/nginx/config_helpers:ro
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      auth:
+        condition: service_started
+    restart: unless-stopped
+    command: [ "/bin/sh", "-c", "/etc/nginx/config_helpers/generate_cert.sh && nginx -g 'daemon off;'" ]
+    logging:
+      <<: *logging
