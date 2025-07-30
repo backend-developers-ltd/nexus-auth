@@ -42,7 +42,7 @@ RUN chown -R appuser:appgroup /app
 USER appuser
 
 # Expose the default port
-EXPOSE 8443
+EXPOSE 8080
 
 # Run the application with default settings
 CMD ["./auth-server"]

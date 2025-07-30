@@ -36,6 +36,7 @@ func (a *Auth) Start() error {
 	log.Printf("Starting HTTP auth server on %s", httpAddr)
 
 	// Create HTTP server with auth handler
+	// TODO(maciek): add read/write timeouts
 	httpServer := &http.Server{
 		Addr:    httpAddr,
 		Handler: http.HandlerFunc(a.authHandler),
@@ -137,10 +138,45 @@ func (a *Auth) extractOrganizationName(cert *x509.Certificate) string {
 	return ""
 }
 
+// sanitizeOrgName sanitizes the organization name to prevent path traversal attacks
+func (a *Auth) sanitizeOrgName(orgName string) (string, error) {
+	// Check if orgName is empty
+	if strings.TrimSpace(orgName) == "" {
+		return "", fmt.Errorf("organization name cannot be empty")
+	}
+
+	// Remove any path separators and traversal sequences
+	sanitized := strings.ReplaceAll(orgName, "/", "")
+	sanitized = strings.ReplaceAll(sanitized, "\\", "")
+	sanitized = strings.ReplaceAll(sanitized, "..", "")
+
+	// Check for invalid characters - only allow alphanumeric, spaces, hyphens, and underscores
+	for _, char := range sanitized {
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || 
+			 (char >= '0' && char <= '9') || char == ' ' || char == '-' || char == '_') {
+			return "", fmt.Errorf("organization name contains invalid characters")
+		}
+	}
+
+	// Trim whitespace and check if anything is left
+	sanitized = strings.TrimSpace(sanitized)
+	if sanitized == "" {
+		return "", fmt.Errorf("organization name is empty after sanitization")
+	}
+
+	return sanitized, nil
+}
+
 // loadCertificate loads the certificate for the given organization from the certs directory
 func (a *Auth) loadCertificate(orgName string) (*x509.Certificate, error) {
+	// Sanitize the organization name to prevent path traversal attacks
+	sanitizedOrgName, err := a.sanitizeOrgName(orgName)
+	if err != nil {
+		return nil, fmt.Errorf("invalid organization name: %v", err)
+	}
+
 	// Construct the path to the certificate file
-	certPath := filepath.Join(a.config.GetCertsDirectory(), orgName+".crt")
+	certPath := filepath.Join(a.config.GetCertsDirectory(), sanitizedOrgName+".crt")
 
 	// Check if the file exists
 	if _, err := os.Stat(certPath); os.IsNotExist(err) {
@@ -197,7 +233,6 @@ func (a *Auth) validateCertificate(cert *x509.Certificate, expectedCert *x509.Ce
 		return fmt.Errorf("certificate subject does not match expected certificate subject")
 	}
 
-	// Additional validation: check if certificate is expired
 	// Note: We're not checking the certificate chain or CA validation here
 	// as this is typically handled by the reverse proxy (nginx) before reaching this service
 
