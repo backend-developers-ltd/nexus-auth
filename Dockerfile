@@ -17,7 +17,7 @@ RUN go mod download
 COPY . .
 
 # Build the application using Makefile
-RUN make docker-build
+RUN make build
 
 # Runtime stage
 FROM alpine:latest
