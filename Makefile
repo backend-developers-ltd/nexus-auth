@@ -30,7 +30,7 @@ build:
 # Clean build artifacts
 clean:
 	$(GOCLEAN)
-	rm -f $(BINARY_NAME)
+	rm -f $(BINARY_NAME) coverage.html coverage.out
 
 # Run tests
 test:

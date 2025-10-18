@@ -26,6 +26,10 @@ vendor/
 # Go workspace file
 go.work
 
+# Coverage
+coverage.html
+coverage.out
+
 # Certificates
 /certs/
 /nginx/ssl/
