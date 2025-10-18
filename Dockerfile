@@ -33,7 +33,7 @@ RUN addgroup -g 1001 -S appgroup && \
 WORKDIR /app
 
 # Copy the binary from builder stage
-COPY --from=builder /app/auth-server .
+COPY --from=builder /app/nexus-auth .
 
 # Change ownership to non-root user
 RUN chown -R appuser:appgroup /app
@@ -45,4 +45,4 @@ USER appuser
 EXPOSE 8080
 
 # Run the application with default settings
-CMD ["./auth-server"]
+CMD ["./nexus-auth"]

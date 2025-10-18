@@ -9,7 +9,7 @@ GOFMT=gofmt
 GOVET=$(GOCMD) vet
 
 # Binary name
-BINARY_NAME=auth-server
+BINARY_NAME=nexus-auth
 
 # Build flags
 BUILD_FLAGS=-a -installsuffix cgo
