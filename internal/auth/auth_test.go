@@ -586,12 +586,3 @@ func encodeCertificateToPEM(cert *x509.Certificate) string {
 	})
 	return string(certPEM)
 }
-
-func encodePublicKeyToPEM(publicKey ed25519.PublicKey) string {
-	publicKeyDER, _ := x509.MarshalPKIXPublicKey(publicKey)
-	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: publicKeyDER,
-	})
-	return string(publicKeyPEM)
-}
