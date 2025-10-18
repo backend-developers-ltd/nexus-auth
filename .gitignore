@@ -1,5 +1,5 @@
 # Binaries
-nexus-auth
+/nexus-auth
 
 # IDE files
 .idea/
@@ -29,6 +29,9 @@ go.work
 # Coverage
 coverage.html
 coverage.out
+
+# Pylon database
+/db/
 
 # Certificates
 /certs/

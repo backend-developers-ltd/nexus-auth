@@ -1,42 +1,29 @@
 package configuration
 
 import (
-	"flag"
 	"os"
 )
 
 // Config holds all configuration values for the auth service
 type Config struct {
-	ListenAddr string
-	CertsDir   string
+	ListenAddr    string
+	PylonEndpoint string
 }
 
-// NewConfig creates a new configuration instance with values from CLI args and environment variables
+// NewConfig creates a new configuration instance with defaults and environment variables only
+// Command-line flags must NOT be handled here.
 func NewConfig() *Config {
 	config := &Config{
-		ListenAddr: ":8080", // default HTTP port
-		CertsDir:   "certs", // default certificates directory
+		ListenAddr:    ":8080",             // default HTTP port
+		PylonEndpoint: "http://pylon:8000", // default Pylon endpoint
 	}
 
-	// Parse CLI arguments
-	listenAddrFlag := flag.String("listen-addr", config.ListenAddr, "Address to listen on")
-	certsDirFlag := flag.String("certs-dir", config.CertsDir, "Directory containing certificate files")
-	flag.Parse()
-
-	// Check for environment variables
-	if envListenAddr := os.Getenv("NEXUS_LISTEN_ADDR"); envListenAddr != "" {
+	// Environment variables override defaults
+	if envListenAddr := os.Getenv("NEXUS_AUTH_LISTEN_ADDR"); envListenAddr != "" {
 		config.ListenAddr = envListenAddr
 	}
-	if envCertsDir := os.Getenv("NEXUS_CERTS_DIR"); envCertsDir != "" {
-		config.CertsDir = envCertsDir
-	}
-
-	// CLI arguments take precedence over environment variables
-	if flag.Lookup("listen-addr").Value.String() != flag.Lookup("listen-addr").DefValue {
-		config.ListenAddr = *listenAddrFlag
-	}
-	if flag.Lookup("certs-dir").Value.String() != flag.Lookup("certs-dir").DefValue {
-		config.CertsDir = *certsDirFlag
+	if envPylonEndpoint := os.Getenv("NEXUS_PYLON_ENDPOINT"); envPylonEndpoint != "" {
+		config.PylonEndpoint = envPylonEndpoint
 	}
 
 	return config
@@ -47,7 +34,17 @@ func (c *Config) GetListenAddress() string {
 	return c.ListenAddr
 }
 
-// GetCertsDirectory returns the directory path for certificate files
-func (c *Config) GetCertsDirectory() string {
-	return c.CertsDir
+// GetPylonEndpoint returns the base URL for the Pylon service
+func (c *Config) GetPylonEndpoint() string {
+	return c.PylonEndpoint
+}
+
+// SetListenAddress mutates the listen address; used by CLI layer to override env/defaults.
+func (c *Config) SetListenAddress(addr string) {
+	c.ListenAddr = addr
+}
+
+// SetPylonEndpoint mutates the pylon endpoint; used by CLI layer to override env/defaults.
+func (c *Config) SetPylonEndpoint(endpoint string) {
+	c.PylonEndpoint = endpoint
 }

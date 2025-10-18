@@ -26,23 +26,24 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 
 # Create a non-root user
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -u 1001 -S appuser -G appgroup
+RUN addgroup -g 1000 -S nexus && \
+    adduser -u 1000 -S nexus -G nexus
 
 # Set working directory
 WORKDIR /app
 
 # Copy the binary from builder stage
-COPY --from=builder /app/nexus-auth .
+COPY --from=builder /app/nexus-auth /usr/bin/
 
 # Change ownership to non-root user
-RUN chown -R appuser:appgroup /app
+RUN chown -R nexus:nexus /app
 
 # Switch to non-root user
-USER appuser
+USER nexus
 
 # Expose the default port
 EXPOSE 8080
 
-# Run the application with default settings
-CMD ["./nexus-auth"]
+# Run the application
+ENTRYPOINT ["nexus-auth"]
+CMD ["run"]

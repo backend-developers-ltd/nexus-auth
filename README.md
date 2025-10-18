@@ -4,99 +4,82 @@ Authentication service for Bittensor's Nexus Framework.
 
 ## Architecture
 
-This repository contains a single Go-based Nexus Auth Service that performs mTLS certificate validation.
+This repository contains a Go-based Nexus Auth Service that can act as an Nginx auth_request endpoint to validate incoming requests. It verifies client certificates by retrieving and checking public key data via Pylon. The service can also be used to generate client certificates and, through Pylon, publish certificate information to the blockchain.
 
 - Primary component: Nexus Auth Service (Go)
 - Development helpers: Nginx reverse proxy and Docker Compose (development only)
 
-For local development, Nginx can be used as a TLS termination and reverse proxy with auth_request integration via docker-compose. In production, run the Go service directly behind your own ingress/reverse proxy as needed.
+For production, run the Go service behind your own ingress/reverse proxy as needed. Nginx and docker-compose provided here are for local development only.
 
 ## Features
 
-- **Containerized Development Environment**: Docker Compose and Nginx provided for local development only
-- **mTLS Certificate Validation**: Validates client certificates with organization-based authentication
-- **SSL/TLS Termination (dev-only)**: Nginx handles HTTPS with automatic HTTP to HTTPS redirection in local development
-- **Certificate Verification**: Compares certificates against stored authorized certificates
-- **Comprehensive Logging**: Detailed request and validation logging for debugging and monitoring
-- **Development Tools**: Complete Makefile with testing, linting, and coverage support
+- Nginx auth_request compatible endpoint: returns 200 (authorized) or 403 (forbidden)
+- mTLS client certificate validation using Pylon-backed public keys (SS58 address stored in Organization field)
+- Certificate generation helper: create client.key and client.crt; publish via Pylon to the blockchain
+- Comprehensive logging for debugging and monitoring
+- Simple configuration via environment variables or flags
 
 ## Quick Start
+
+This section focuses on production usage.
+
+### Configure the service
+
+Set configuration via environment variables or flags:
+- `NEXUS_AUTH_LISTEN_ADDR` (default: `:8080`)
+- `NEXUS_PYLON_ENDPOINT` (default: `http://pylon:8000`)
+
+### Running Auth Server
+
+
+Use the run subcommand (default) to start the service.
+
+Example:
+```yaml
+services:
+  auth:
+    image: backenddevelopersltd/nexus-auth:latest
+    environment:
+      NEXUS_AUTH_LISTEN_ADDR: ":8080"
+      NEXUS_PYLON_ENDPOINT: "http://pylon:8000"
+    volumes:
+      - ./certs:/app/certs
+    restart: unless-stopped
+```
+
+```bash
+docker compose -p nexus up -d
+```
+
+### Generate a client key and certificate (via Pylon)
+
+Use the generate subcommand to request a keypair from Pylon and create client.key and client.crt locally.
+Pylon will handle publishing certificate data to the blockchain.
+
+Example:
+```bash
+docker run --rm -it -v ./certs:/app/certs backenddevelopersltd/nexus-auth:latest generate \
+  --pylon-endpoint YOUR_PYLON_ENDPOINT \
+  --ss58-address YOUR_SS58_ADDRESS
+```
+Notes:
+- `--not-after-days` can set the certificate validity in days. Default is 3650 (10 years).
+- The SS58 address is stored in the certificate Subject Organization (O) field.
+
+### Integrate with your reverse proxy
+
+Configure your ingress/reverse proxy (e.g., Nginx/Envoy) to:
+- Terminate TLS and enforce mTLS for client connections
+- Call this service (GET /) as an auth_request or external authorization check
+- Grant or deny the original request based on the 200/403 response
+
+## Development
 
 ### Prerequisites
 
 - Go 1.24+ installed
-- Certificate files for authorized organizations (placed in `certs/`)
-- Optional (for development): Docker and Docker Compose
-
-### Run the Auth Service directly (recommended for production)
-
-1. Build and run:
-   ```bash
-   make build
-   ./nexus-auth
-   ```
-   Or run without building:
-   ```bash
-   go run ./
-   ```
-
-2. Configure via environment variables or flags:
-   - NEXUS_LISTEN_ADDR (default: ":8080")
-   - NEXUS_CERTS_DIR (default: "certs")
-
-### Development with Docker Compose (includes Nginx proxy)
-
-1. Start services:
-   ```bash
-   docker-compose up -d
-   ```
-
-2. Access via Nginx (development only):
-   - HTTPS: https://localhost:443
-   - HTTP:  http://localhost:80 (redirects to HTTPS)
-
-3. Stop services:
-   ```bash
-   docker-compose down
-   ```
-
-## Configuration
-
-### Certificate Setup
-
-Place client certificate files in the `certs/` directory, named after the organization:
-
-```bash
-# Example: For organization "ExampleCorp", create:
-certs/ExampleCorp.crt
-```
-
-Certificate files should be in PEM format:
-```
------BEGIN CERTIFICATE-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
------END CERTIFICATE-----
-```
-
-### Environment Variables
-
-The auth service supports the following environment variables:
-- `NEXUS_LISTEN_ADDR`: Listen address for the auth service (default: ":8080")
-- `NEXUS_CERTS_DIR`: Directory containing certificate files (default: "certs")
-
-### Command Line Options
-
-The auth service also supports command line flags:
-- `-listen-addr`: Address to listen on (default: ":8080")
-- `-certs-dir`: Directory containing certificate files (default: "certs")
-
-## Development
-
-### Building the Auth Service
-
-```bash
-make build
-```
+- Docker and Docker Compose
+- Make
 
 ### Available Make Targets
 
@@ -105,26 +88,16 @@ make help
 ```
 
 Common targets:
-- `make all` - Full build pipeline (clean, format, lint, vet, test, build)
-- `make dev` - Quick development cycle (format, vet, test, build)
+- `make all` - Full build pipeline (build, clean, format, lint, test)
+- `make build` - Build the service as a binary
+- `make build-docker` - Build the service as a docker image
+- `make format` - Format the code
+- `make lint` - Run linter
 - `make test` - Run tests
 - `make coverage` - Run tests with coverage report
-- `make lint` - Run linter
 - `make clean` - Clean build artifacts
 
-### Running Tests
-
-```bash
-make test
-```
-
-### Running Locally (Development)
-
-```bash
-go run ./
-```
-
-## How It Works (with Nginx in development)
+## How It Works
 
 1. **Client Request**: Client makes HTTPS request to nginx with client certificate
 2. **SSL Termination**: Nginx handles SSL/TLS and extracts client certificate information
@@ -136,9 +109,9 @@ go run ./
 ### Certificate Validation Process
 
 1. Parse client certificate from `X-Client-Cert` header
-2. Extract Organization Name (O) from certificate subject
-3. Load corresponding certificate from `certs/{OrganizationName}.crt`
-4. Compare certificate's public key with stored certificate's public key
+2. Extract Organization Name (O) from the certificate subject (SS58 address)
+3. Query Pylon for the expected public key using the Organization value as hotkey
+4. Compare the certificate's public key with the public key returned by Pylon
 5. Return validation result
 
 ## API Reference
@@ -169,48 +142,14 @@ go run ./
 
 ```
 nexus-auth/
+├── cmd/                     # Command-line sources
 ├── internal/                # Internal packages
 │   ├── auth/                # Authentication logic
 │   └── configuration/       # Configuration management
-├── certs/                   # Authorized client certificates (PEM)
+│   └── pylon/               # Pylon client
 ├── nginx/                   # Nginx config for local development only
-│   ├── conf.d/
-│   └── ssl/
-├── scripts/                 # Helper scripts (e.g., certificate generation)
 ├── Dockerfile               # Service container (optional)
 ├── Makefile                 # Build and development tools
 ├── docker-compose.yml       # Local development orchestration (dev-only)
-├── go.mod                   # Go module definition
-└── main.go                  # Application entry point
-```
-
-## Security Considerations
-
-- The auth service runs as a non-root user in the container
-- Client certificates are validated against pre-authorized certificates
-- HTTPS redirection and TLS termination are handled by Nginx only in the development setup
-- When using docker-compose, the auth service is only accessible internally via the Docker network
-
-## Troubleshooting
-
-Note: The following items refer to the docker-compose development environment.
-
-### Common Issues
-
-1. **Certificate validation fails**: Check that the certificate file exists in `certs/` directory with the correct organization name
-2. **SSL errors**: Verify SSL certificates are properly placed in `nginx/ssl/`
-3. **Service not accessible**: Ensure Docker containers are running with `docker-compose ps`
-
-### Logs
-
-View service logs:
-```bash
-# All services
-docker-compose logs
-
-# Auth service only
-docker-compose logs auth
-
-# Nginx only
-docker-compose logs nginx
+└── go.mod                   # Go module definition
 ```

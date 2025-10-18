@@ -27,7 +27,7 @@ all: clean format lint test build
 
 # Build the binary
 build:
-	CGO_ENABLED=0 GOOS=linux $(GOBUILD) $(BUILD_FLAGS) -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) .
+	CGO_ENABLED=0 GOOS=linux $(GOBUILD) $(BUILD_FLAGS) -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) ./cmd/nexus-auth
 
 # Build docker image
 docker-build:

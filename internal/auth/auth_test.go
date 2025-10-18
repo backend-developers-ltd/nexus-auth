@@ -5,8 +5,9 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
-	"io/ioutil"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/backend-developers-ltd/nexus-auth/internal/configuration"
+	"github.com/backend-developers-ltd/nexus-auth/internal/pylon"
 )
 
 // TestNewAuth tests the NewAuth constructor
@@ -139,122 +141,73 @@ func TestExtractOrganizationName(t *testing.T) {
 	}
 }
 
-// TestLoadCertificate tests certificate loading functionality
-func TestLoadCertificate(t *testing.T) {
-	// Create temporary directory for test certificates
-	tempDir, err := ioutil.TempDir("", "auth_test_certs")
+// TestLoadExpectedPublicKey tests fetching and decoding public key from Pylon
+func TestLoadExpectedPublicKey(t *testing.T) {
+	// Generate a test ed25519 key pair
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+		t.Fatalf("failed to generate key: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	validKeyHex := hex.EncodeToString(pub)
 
-	// Create test certificate
-	cert := createTestCertificate(t, "Test Organization")
+	// Mock Pylon server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		switch {
+		case strings.Contains(p, "/valid"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, `{"public_key":"%s","algorithm":1}`, validKeyHex)
+		case strings.Contains(p, "/invalid"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"public_key":"nothex","algorithm":1}`))
+		case strings.Contains(p, "/missing"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"foo":"bar"}`))
+		case strings.Contains(p, "/wrongalgo"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"public_key":"abcd","algorithm":2}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
 
-	// Save certificate to file
-	certPEM := encodeCertificateToPEM(cert)
-	certPath := filepath.Join(tempDir, "Test Organization.crt")
-	err = ioutil.WriteFile(certPath, []byte(certPEM), 0644)
-	if err != nil {
-		t.Fatalf("Failed to write certificate file: %v", err)
-	}
-
-	// Create config with temp directory
-	config := &configuration.Config{}
-	config.CertsDir = tempDir
-	auth := &Auth{config: config}
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+	a := &Auth{config: config, pylonClient: pylon.New(config.PylonEndpoint)}
 
 	tests := []struct {
 		name        string
 		orgName     string
 		expectError bool
-		errorType   string // for more specific error checking
 	}{
-		{
-			name:        "existing organization",
-			orgName:     "Test Organization",
-			expectError: false,
-			errorType:   "",
-		},
-		{
-			name:        "non-existing organization",
-			orgName:     "Non Existing Org",
-			expectError: true,
-			errorType:   "not found",
-		},
-		{
-			name:        "empty organization name",
-			orgName:     "",
-			expectError: true,
-			errorType:   "invalid organization name",
-		},
-		{
-			name:        "path traversal with forward slashes",
-			orgName:     "../../etc/passwd",
-			expectError: true,
-			errorType:   "not found", // sanitized to "etcpasswd" but file doesn't exist
-		},
-		{
-			name:        "path traversal with backslashes",
-			orgName:     "..\\..\\windows\\system32",
-			expectError: true,
-			errorType:   "not found", // sanitized to "windowssystem32" but file doesn't exist
-		},
-		{
-			name:        "path traversal with mixed separators",
-			orgName:     "../..\\etc/shadow",
-			expectError: true,
-			errorType:   "not found", // sanitized to "etcshadow" but file doesn't exist
-		},
-		{
-			name:        "organization with special characters",
-			orgName:     "org@#$%^&*()",
-			expectError: true,
-			errorType:   "invalid organization name",
-		},
-		{
-			name:        "organization with only dots",
-			orgName:     "...",
-			expectError: true,
-			errorType:   "invalid organization name",
-		},
-		{
-			name:        "whitespace only organization",
-			orgName:     "   ",
-			expectError: true,
-			errorType:   "invalid organization name",
-		},
-		{
-			name:        "organization with slashes gets sanitized but file not found",
-			orgName:     "org/with/slashes",
-			expectError: true,
-			errorType:   "not found", // sanitized to "orgwithslashes" but file doesn't exist
-		},
+		{name: "success", orgName: "valid", expectError: false},
+		{name: "invalid encoding", orgName: "invalid", expectError: true},
+		{name: "missing key", orgName: "missing", expectError: true},
+		{name: "wrong algorithm", orgName: "wrongalgo", expectError: true},
+		{name: "not found", orgName: "unknown", expectError: true},
+		{name: "empty", orgName: "", expectError: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			loadedCert, err := auth.loadCertificate(tt.orgName)
-
+			pubKey, err := a.loadExpectedPublicKey(tt.orgName)
 			if tt.expectError {
 				if err == nil {
-					t.Error("Expected error but got none")
+					t.Fatalf("expected error, got none")
 				}
-				if loadedCert != nil {
-					t.Error("Expected nil certificate on error")
-				}
-				// Check for specific error types
-				if tt.errorType != "" {
-					if !strings.Contains(err.Error(), tt.errorType) {
-						t.Errorf("Expected error containing %q, got %q", tt.errorType, err.Error())
-					}
+				if pubKey != nil {
+					t.Fatalf("expected nil pubKey on error")
 				}
 			} else {
 				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
+					t.Fatalf("unexpected error: %v", err)
 				}
-				if loadedCert == nil {
-					t.Error("Expected certificate but got nil")
+				if len(pubKey) == 0 {
+					t.Fatalf("expected non-empty pubKey")
 				}
 			}
 		})
@@ -387,48 +340,39 @@ func TestSanitizeOrgName(t *testing.T) {
 }
 
 // TestValidateCertificate tests certificate validation
-func TestValidateCertificate(t *testing.T) {
+func TestValidatePublicKey(t *testing.T) {
 	auth := &Auth{}
 
 	// Generate test key pairs
-	_, privateKey1, _ := ed25519.GenerateKey(rand.Reader)
-	_, privateKey2, _ := ed25519.GenerateKey(rand.Reader)
+	pub1, priv1, _ := ed25519.GenerateKey(rand.Reader)
+	pub2, _, _ := ed25519.GenerateKey(rand.Reader)
 
 	// Create certificates with different keys
-	cert1 := createTestCertificateWithKey(t, "Test Org", privateKey1)
-	cert2 := createTestCertificateWithKey(t, "Test Org", privateKey2)
-	cert3 := createTestCertificateWithKey(t, "Different Org", privateKey1)
+	cert1 := createTestCertificateWithKey(t, "Test Org", priv1)
 
 	tests := []struct {
-		name         string
-		cert         *x509.Certificate
-		expectedCert *x509.Certificate
-		expectError  bool
+		name        string
+		cert        *x509.Certificate
+		expectedPub ed25519.PublicKey
+		expectError bool
 	}{
 		{
-			name:         "matching certificates",
-			cert:         cert1,
-			expectedCert: cert1,
-			expectError:  false,
+			name:        "matching public key",
+			cert:        cert1,
+			expectedPub: pub1,
+			expectError: false,
 		},
 		{
-			name:         "non-matching certificates",
-			cert:         cert1,
-			expectedCert: cert2,
-			expectError:  true,
-		},
-		{
-			name:         "same key different subject",
-			cert:         cert1,
-			expectedCert: cert3,
-			expectError:  true,
+			name:        "non-matching public key",
+			cert:        cert1,
+			expectedPub: pub2,
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := auth.validateCertificate(tt.cert, tt.expectedCert)
-
+			err := auth.validatePublicKey(tt.cert, tt.expectedPub)
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error but got none")
@@ -444,28 +388,26 @@ func TestValidateCertificate(t *testing.T) {
 
 // TestAuthHandler tests the HTTP auth handler
 func TestAuthHandler(t *testing.T) {
-	// Create temporary directory for test certificates
-	tempDir, err := ioutil.TempDir("", "auth_test_certs")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
 	// Create test key pair and certificate
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
 	testCert := createTestCertificateWithKey(t, "Test Organization", privateKey)
 
-	// Save certificate to file
-	certPEM := encodeCertificateToPEM(testCert)
-	certPath := filepath.Join(tempDir, "Test Organization.crt")
-	err = ioutil.WriteFile(certPath, []byte(certPEM), 0644)
-	if err != nil {
-		t.Fatalf("Failed to write certificate file: %v", err)
-	}
+	// Prepare Pylon mock server that returns the public key for Test Organization
+	testPub := testCert.PublicKey.(ed25519.PublicKey)
+	testPubHex := hex.EncodeToString(testPub)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/Test Organization") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, `{"public_key":"%s","algorithm":1}`, testPubHex)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
 
-	// Create auth instance
-	config := &configuration.Config{}
-	config.CertsDir = tempDir
+	// Create auth instance configured to use mocked Pylon
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
 	auth := NewAuth(config)
 
 	// Create certificates with malicious organization names for security testing
@@ -585,4 +527,113 @@ func encodeCertificateToPEM(cert *x509.Certificate) string {
 		Bytes: cert.Raw,
 	})
 	return string(certPEM)
+}
+
+// New tests for Auth.Generate
+func TestGenerate_Success(t *testing.T) {
+	// Prepare a deterministic 32-byte seed for ed25519
+	seed := make([]byte, ed25519.SeedSize)
+	for i := range seed {
+		seed[i] = byte(i)
+	}
+	seedHex := hex.EncodeToString(seed)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = fmt.Fprintf(w, `{"algorithm":1,"public_key":"IGNORED","private_key":"%s"}`, seedHex)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+	a := NewAuth(config)
+
+	outDir := t.TempDir()
+	ss58 := "TEST_SS58_ADDRESS"
+
+	if err := a.Generate(outDir, 1, ss58, 3650); err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// Check files exist
+	keyPath := filepath.Join(outDir, "client.key")
+	crtPath := filepath.Join(outDir, "client.crt")
+	if _, err := os.Stat(keyPath); err != nil {
+		t.Fatalf("expected key file, got error: %v", err)
+	}
+	if _, err := os.Stat(crtPath); err != nil {
+		t.Fatalf("expected cert file, got error: %v", err)
+	}
+
+	// Parse certificate and verify subject Organization
+	crtPEM, err := os.ReadFile(crtPath)
+	if err != nil {
+		t.Fatalf("read crt failed: %v", err)
+	}
+	block, _ := pem.Decode(crtPEM)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatalf("invalid cert pem")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse cert failed: %v", err)
+	}
+	if len(cert.Subject.Organization) == 0 || cert.Subject.Organization[0] != ss58 {
+		t.Fatalf("unexpected subject organization: %+v", cert.Subject)
+	}
+}
+
+func TestGenerate_PropagatesErrors(t *testing.T) {
+	t.Run("pylon error", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		})
+		ts := httptest.NewServer(mux)
+		defer ts.Close()
+
+		config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+		a := NewAuth(config)
+
+		outDir := t.TempDir()
+		if err := a.Generate(outDir, 1, "ADDR", 3650); err == nil {
+			t.Fatalf("expected error but got nil")
+		}
+	})
+
+	t.Run("file creation error", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			// Return a minimal valid 32-byte seed as hex
+			seed := make([]byte, ed25519.SeedSize)
+			for i := range seed {
+				seed[i] = byte(i)
+			}
+			_, _ = fmt.Fprintf(w, `{"algorithm":1,"public_key":"IGNORED","private_key":"%s"}`, hex.EncodeToString(seed))
+		})
+		ts := httptest.NewServer(mux)
+		defer ts.Close()
+
+		config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+		a := NewAuth(config)
+
+		// Create an output path that is a file (so MkdirAll will fail)
+		f, err := os.CreateTemp(t.TempDir(), "outfile")
+		if err != nil {
+			t.Fatalf("create temp file: %v", err)
+		}
+		_ = f.Close()
+		outDir := f.Name()
+		if err := a.Generate(outDir, 1, "ADDR", 3650); err == nil {
+			t.Fatalf("expected error due to invalid output dir but got nil")
+		}
+	})
 }
