@@ -152,8 +152,8 @@ func (a *Auth) sanitizeOrgName(orgName string) (string, error) {
 
 	// Check for invalid characters - only allow alphanumeric, spaces, hyphens, and underscores
 	for _, char := range sanitized {
-		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || 
-			 (char >= '0' && char <= '9') || char == ' ' || char == '-' || char == '_') {
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == ' ' || char == '-' || char == '_') {
 			return "", fmt.Errorf("organization name contains invalid characters")
 		}
 	}
