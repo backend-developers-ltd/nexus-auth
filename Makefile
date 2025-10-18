@@ -10,7 +10,6 @@ GOVET=$(GOCMD) vet
 
 # Binary name
 BINARY_NAME=auth-server
-BINARY_UNIX=$(BINARY_NAME)_unix
 
 # Build flags
 BUILD_FLAGS=-a -installsuffix cgo
@@ -19,7 +18,7 @@ LDFLAGS=-w -s
 # Linter
 GOLANGCI_LINT=golangci-lint
 
-.PHONY: all build clean test coverage lint format vet help install-tools mod-tidy mod-verify build-linux
+.PHONY: all build clean test coverage lint format vet help install-tools mod-tidy mod-verify
 
 # Default target
 all: clean format lint vet test build
@@ -28,15 +27,10 @@ all: clean format lint vet test build
 build:
 	CGO_ENABLED=0 GOOS=linux $(GOBUILD) $(BUILD_FLAGS) -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) .
 
-# Build for Linux (useful for Docker)
-build-linux:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) $(BUILD_FLAGS) -ldflags "$(LDFLAGS)" -o $(BINARY_UNIX) .
-
 # Clean build artifacts
 clean:
 	$(GOCLEAN)
 	rm -f $(BINARY_NAME)
-	rm -f $(BINARY_UNIX)
 
 # Run tests
 test:
@@ -87,7 +81,6 @@ help:
 	@echo "Available targets:"
 	@echo "  all          - Run clean, format, lint, vet, test, and build"
 	@echo "  build        - Build the binary"
-	@echo "  build-linux  - Build the binary for Linux"
 	@echo "  clean        - Clean build artifacts"
 	@echo "  test         - Run tests"
 	@echo "  coverage     - Run tests with coverage report"
