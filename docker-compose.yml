@@ -2,7 +2,7 @@
 services:
   auth:
     build:
-      context: ./auth
+      context: .
       dockerfile: Dockerfile
     volumes:
       - ./certs:/app/certs:ro
