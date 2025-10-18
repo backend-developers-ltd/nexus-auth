@@ -2,8 +2,9 @@
 services:
   auth:
     build:
-      context: ./auth
+      context: .
       dockerfile: Dockerfile
+    container_name: nexus-auth
     volumes:
       - ./certs:/app/certs:ro
     restart: unless-stopped
@@ -14,6 +15,7 @@ services:
 
   nginx:
     image: nginx:latest
+    container_name: nexus-nginx
     ports:
       - "443:443"
       - "80:80"

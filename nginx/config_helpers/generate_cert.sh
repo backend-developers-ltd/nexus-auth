@@ -1,7 +1,5 @@
 #!/bin/sh
 
-# TODO(maciek): Change it for production, based on the bittensor topology and requirements
-
 # Check if the certificate and key already exist
 if [ ! -f "/etc/nginx/ssl/nginx.crt" ] || [ ! -f "/etc/nginx/ssl/nginx.key" ]; then
     if ! command -v openssl >/dev/null 2>&1; then

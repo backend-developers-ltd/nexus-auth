@@ -1,5 +1,5 @@
 # Binaries
-auth/auth-server
+nexus-auth
 
 # IDE files
 .idea/
@@ -25,6 +25,10 @@ vendor/
 
 # Go workspace file
 go.work
+
+# Coverage
+coverage.html
+coverage.out
 
 # Certificates
 /certs/

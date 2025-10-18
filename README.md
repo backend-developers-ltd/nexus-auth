@@ -1,21 +1,21 @@
-# Bittensor Nexus
+# Nexus Auth
 
-Next generation, containerized, Bittensor's subnet template.
+Authentication service for Bittensor's Nexus Framework.
 
 ## Architecture
 
-The system consists of two main components:
+This repository contains a single Go-based Nexus Auth Service that performs mTLS certificate validation.
 
-- **Auth Service**: A Go-based mTLS certificate validation service
-- **Nginx Proxy**: SSL/TLS termination and reverse proxy with auth_request integration
+- Primary component: Nexus Auth Service (Go)
+- Development helpers: Nginx reverse proxy and Docker Compose (development only)
 
-Both services run in Docker containers and communicate over a private network.
+For local development, Nginx can be used as a TLS termination and reverse proxy with auth_request integration via docker-compose. In production, run the Go service directly behind your own ingress/reverse proxy as needed.
 
 ## Features
 
-- **Containerized Deployment**: Complete Docker Compose setup for easy deployment
+- **Containerized Development Environment**: Docker Compose and Nginx provided for local development only
 - **mTLS Certificate Validation**: Validates client certificates with organization-based authentication
-- **SSL/TLS Termination**: Nginx handles HTTPS with automatic HTTP to HTTPS redirection
+- **SSL/TLS Termination (dev-only)**: Nginx handles HTTPS with automatic HTTP to HTTPS redirection in local development
 - **Certificate Verification**: Compares certificates against stored authorized certificates
 - **Comprehensive Logging**: Detailed request and validation logging for debugging and monitoring
 - **Development Tools**: Complete Makefile with testing, linting, and coverage support
@@ -24,21 +24,38 @@ Both services run in Docker containers and communicate over a private network.
 
 ### Prerequisites
 
-- Docker and Docker Compose
+- Go 1.24+ installed
 - Certificate files for authorized organizations (placed in `certs/`)
+- Optional (for development): Docker and Docker Compose
 
-### Running the System
+### Run the Auth Service directly (recommended for production)
 
-1. **Start the services:**
+1. Build and run:
+   ```bash
+   make build
+   ./nexus-auth
+   ```
+   Or run without building:
+   ```bash
+   go run ./
+   ```
+
+2. Configure via environment variables or flags:
+   - NEXUS_LISTEN_ADDR (default: ":8080")
+   - NEXUS_CERTS_DIR (default: "certs")
+
+### Development with Docker Compose (includes Nginx proxy)
+
+1. Start services:
    ```bash
    docker-compose up -d
    ```
 
-2. **Access the system:**
-   - HTTPS: `https://localhost:443`
-   - HTTP (redirects to HTTPS): `http://localhost:80`
+2. Access via Nginx (development only):
+   - HTTPS: https://localhost:443
+   - HTTP:  http://localhost:80 (redirects to HTTPS)
 
-3. **Stop the services:**
+3. Stop services:
    ```bash
    docker-compose down
    ```
@@ -78,14 +95,12 @@ The auth service also supports command line flags:
 ### Building the Auth Service
 
 ```bash
-cd auth
 make build
 ```
 
 ### Available Make Targets
 
 ```bash
-cd auth
 make help
 ```
 
@@ -100,18 +115,16 @@ Common targets:
 ### Running Tests
 
 ```bash
-cd auth
 make test
 ```
 
 ### Running Locally (Development)
 
 ```bash
-cd auth
-go run main.go
+go run ./
 ```
 
-## How It Works
+## How It Works (with Nginx in development)
 
 1. **Client Request**: Client makes HTTPS request to nginx with client certificate
 2. **SSL Termination**: Nginx handles SSL/TLS and extracts client certificate information
@@ -155,29 +168,32 @@ go run main.go
 ## Project Structure
 
 ```
-bittensor-nexus/
-├── auth/                    # Go authentication service
-│   ├── internal/           # Internal packages
-│   │   ├── auth/          # Authentication logic
-│   │   └── configuration/ # Configuration management
-│   ├── Dockerfile         # Auth service container
-│   ├── Makefile          # Build and development tools
-│   └── main.go           # Application entry point
-├── nginx/                 # Nginx configuration
-│   ├── conf.d/           # Nginx site configuration
-│   └── ssl/              # SSL certificates
-├── certs/                # Authorized certificates
-└── docker-compose.yml   # Container orchestration
+nexus-auth/
+├── internal/                # Internal packages
+│   ├── auth/                # Authentication logic
+│   └── configuration/       # Configuration management
+├── certs/                   # Authorized client certificates (PEM)
+├── nginx/                   # Nginx config for local development only
+│   ├── conf.d/
+│   └── ssl/
+├── scripts/                 # Helper scripts (e.g., certificate generation)
+├── Dockerfile               # Service container (optional)
+├── Makefile                 # Build and development tools
+├── docker-compose.yml       # Local development orchestration (dev-only)
+├── go.mod                   # Go module definition
+└── main.go                  # Application entry point
 ```
 
 ## Security Considerations
 
 - The auth service runs as a non-root user in the container
 - Client certificates are validated against pre-authorized certificates
-- All HTTP traffic is automatically redirected to HTTPS
-- The auth service is only accessible internally via Docker network
+- HTTPS redirection and TLS termination are handled by Nginx only in the development setup
+- When using docker-compose, the auth service is only accessible internally via the Docker network
 
 ## Troubleshooting
+
+Note: The following items refer to the docker-compose development environment.
 
 ### Common Issues
 
