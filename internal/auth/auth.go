@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bittensor-nexus/auth/internal/configuration"
+	"github.com/backend-developers-ltd/nexus-auth/internal/configuration"
 )
 
 // Auth represents the HTTP auth server

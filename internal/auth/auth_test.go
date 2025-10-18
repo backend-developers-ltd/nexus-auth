@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bittensor-nexus/auth/internal/configuration"
+	"github.com/backend-developers-ltd/nexus-auth/internal/configuration"
 )
 
 // TestNewAuth tests the NewAuth constructor

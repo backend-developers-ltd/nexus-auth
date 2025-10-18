@@ -3,8 +3,8 @@ package main
 import (
 	"log"
 
-	"github.com/bittensor-nexus/auth/internal/auth"
-	"github.com/bittensor-nexus/auth/internal/configuration"
+	"github.com/backend-developers-ltd/nexus-auth/internal/auth"
+	"github.com/backend-developers-ltd/nexus-auth/internal/configuration"
 )
 
 func main() {
