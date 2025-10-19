@@ -55,7 +55,20 @@ func (a *Auth) Run() error {
 
 // Generate requests Pylon to generate an Ed25519 keypair and writes client.key and client.crt into outputDir
 // notAfterDays controls the validity period of the generated certificate (in days).
-func (a *Auth) Generate(outputDir string, algorithm int, ss58Address string, notAfterDays int) error {
+func (a *Auth) Generate(ss58Address string, outputDir string, algorithm int, notAfterDays int, force bool) error {
+	// Determine target paths first and check if they already exist
+	keyPath := filepath.Join(outputDir, "client.key")
+	crtPath := filepath.Join(outputDir, "client.crt")
+	if !force {
+		if _, err := os.Stat(keyPath); err == nil {
+			if _, err2 := os.Stat(crtPath); err2 == nil {
+				// Both files exist, skip regeneration
+				log.Printf("%s and %s already exist, skipping (use --force-recreate to override)", keyPath, crtPath)
+				return nil
+			}
+		}
+	}
+
 	resp, err := a.pylonClient.GenerateCertificateKeypair(pylon.GenerateCertificateKeypairRequest{Algorithm: algorithm})
 	if err != nil {
 		return fmt.Errorf("failed to generate certificate keypair: %w", err)
@@ -113,8 +126,6 @@ func (a *Auth) Generate(outputDir string, algorithm int, ss58Address string, not
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	keyPath := filepath.Join(outputDir, "client.key")
-	crtPath := filepath.Join(outputDir, "client.crt")
 	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
 		return fmt.Errorf("failed to write private key: %w", err)
 	}

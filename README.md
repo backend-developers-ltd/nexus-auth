@@ -56,14 +56,17 @@ docker compose -p nexus up -d
 Use the generate subcommand to request a keypair from Pylon and create client.key and client.crt locally.
 Pylon will handle publishing certificate data to the blockchain.
 
+If both client.crt and client.key already exist in the output directory, generation will be skipped to avoid accidental overwrites. Use --force-recreate to override this behavior.
+
 Example:
 ```bash
 docker run --rm -it -v ./certs:/app/certs backenddevelopersltd/nexus-auth:latest generate \
-  --pylon-endpoint YOUR_PYLON_ENDPOINT \
-  --ss58-address YOUR_SS58_ADDRESS
+  -pylon-endpoint YOUR_PYLON_ENDPOINT \
+  -ss58-address YOUR_SS58_ADDRESS
 ```
 Notes:
-- `--not-after-days` can set the certificate validity in days. Default is 3650 (10 years).
+- `-not-after-days` can set the certificate validity in days. Default is 3650 (10 years).
+- `-force-recreate` forces overwriting existing client.key and client.crt if they already exist.
 - The SS58 address is stored in the certificate Subject Organization (O) field.
 
 ### Integrate with your reverse proxy
