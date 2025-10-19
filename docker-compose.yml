@@ -4,18 +4,31 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: nexus-auth
     volumes:
-      - ./certs:/app/certs:ro
+      - ./certs:/app/certs
     restart: unless-stopped
     logging: &logging
       driver: journald
       options:
         tag: '{% raw %}{{.Name}}{% endraw %}'
 
+  pylon:
+    image: backenddevelopersltd/bittensor-pylon:latest
+    environment:
+      BITTENSOR_NETUID: 1
+      BITTENSOR_NETWORK: ws://54.83.169.218:9946
+      BITTENSOR_WALLET_PATH: ~/.bittensor/wallets
+      BITTENSOR_WALLET_NAME: extra_validator_1
+      BITTENSOR_WALLET_HOTKEY_NAME: default
+    volumes:
+      - ./db:/app/db
+      - $HOME/.bittensor:/root/.bittensor
+    restart: unless-stopped
+    logging:
+      <<: *logging
+
   nginx:
     image: nginx:latest
-    container_name: nexus-nginx
     ports:
       - "443:443"
       - "80:80"

@@ -6,26 +6,12 @@ import (
 	"testing"
 )
 
-// TestNewConfig tests the NewConfig function with various scenarios
+// TestNewConfig tests the NewConfig function with defaults and env only (CLI flags ignored)
 func TestNewConfig(t *testing.T) {
-	// Save original command line args and environment
+	// Save and restore original command line args; environment is managed per-subtest via t.Setenv
 	originalArgs := os.Args
-	originalEnvListenAddr := os.Getenv("NEXUS_LISTEN_ADDR")
-	originalEnvCertsDir := os.Getenv("NEXUS_CERTS_DIR")
-
-	// Clean up after test
 	defer func() {
 		os.Args = originalArgs
-		if originalEnvListenAddr != "" {
-			os.Setenv("NEXUS_LISTEN_ADDR", originalEnvListenAddr)
-		} else {
-			os.Unsetenv("NEXUS_LISTEN_ADDR")
-		}
-		if originalEnvCertsDir != "" {
-			os.Setenv("NEXUS_CERTS_DIR", originalEnvCertsDir)
-		} else {
-			os.Unsetenv("NEXUS_CERTS_DIR")
-		}
 		// Reset flag package state
 		flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	}()
@@ -34,57 +20,33 @@ func TestNewConfig(t *testing.T) {
 		name               string
 		args               []string
 		envListenAddr      string
-		envCertsDir        string
+		envPylonEndpoint   string
 		expectedListenAddr string
-		expectedCerts      string
+		expectedPylon      string
 	}{
 		{
 			name:               "default values",
 			args:               []string{"program"},
 			envListenAddr:      "",
-			envCertsDir:        "",
+			envPylonEndpoint:   "",
 			expectedListenAddr: ":8080",
-			expectedCerts:      "certs",
+			expectedPylon:      "http://pylon:8000",
 		},
 		{
 			name:               "environment variables only",
 			args:               []string{"program"},
 			envListenAddr:      ":9090",
-			envCertsDir:        "/custom/certs",
+			envPylonEndpoint:   "http://env-pylon:8080/",
 			expectedListenAddr: ":9090",
-			expectedCerts:      "/custom/certs",
+			expectedPylon:      "http://env-pylon:8080/",
 		},
 		{
-			name:               "CLI args only",
-			args:               []string{"program", "-listen-addr", ":7070", "-certs-dir", "/cli/certs"},
+			name:               "CLI args are ignored in NewConfig",
+			args:               []string{"program", "-listen-addr", ":7070", "-pylon-endpoint", "http://cli-pylon:8080/"},
 			envListenAddr:      "",
-			envCertsDir:        "",
-			expectedListenAddr: ":7070",
-			expectedCerts:      "/cli/certs",
-		},
-		{
-			name:               "CLI args override environment",
-			args:               []string{"program", "-listen-addr", ":6060", "-certs-dir", "/override/certs"},
-			envListenAddr:      ":9090",
-			envCertsDir:        "/env/certs",
-			expectedListenAddr: ":6060",
-			expectedCerts:      "/override/certs",
-		},
-		{
-			name:               "partial CLI override",
-			args:               []string{"program", "-listen-addr", ":5050"},
-			envListenAddr:      ":9090",
-			envCertsDir:        "/env/certs",
-			expectedListenAddr: ":5050",
-			expectedCerts:      "/env/certs",
-		},
-		{
-			name:               "partial environment override",
-			args:               []string{"program"},
-			envListenAddr:      ":4040",
-			envCertsDir:        "",
-			expectedListenAddr: ":4040",
-			expectedCerts:      "certs",
+			envPylonEndpoint:   "",
+			expectedListenAddr: ":8080",
+			expectedPylon:      "http://pylon:8000",
 		},
 	}
 
@@ -93,20 +55,20 @@ func TestNewConfig(t *testing.T) {
 			// Reset flag package state for each test
 			flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
-			// Set up environment variables
+			// Set up environment variables for this subtest
 			if tt.envListenAddr != "" {
-				os.Setenv("NEXUS_LISTEN_ADDR", tt.envListenAddr)
+				t.Setenv("NEXUS_AUTH_LISTEN_ADDR", tt.envListenAddr)
 			} else {
-				os.Unsetenv("NEXUS_LISTEN_ADDR")
+				t.Setenv("NEXUS_AUTH_LISTEN_ADDR", "")
 			}
 
-			if tt.envCertsDir != "" {
-				os.Setenv("NEXUS_CERTS_DIR", tt.envCertsDir)
+			if tt.envPylonEndpoint != "" {
+				t.Setenv("NEXUS_PYLON_ENDPOINT", tt.envPylonEndpoint)
 			} else {
-				os.Unsetenv("NEXUS_CERTS_DIR")
+				t.Setenv("NEXUS_PYLON_ENDPOINT", "")
 			}
 
-			// Set up command line arguments
+			// Set up command line arguments (should not affect NewConfig)
 			os.Args = tt.args
 
 			// Create config
@@ -116,9 +78,8 @@ func TestNewConfig(t *testing.T) {
 			if config.ListenAddr != tt.expectedListenAddr {
 				t.Errorf("Expected ListenAddr %q, got %q", tt.expectedListenAddr, config.ListenAddr)
 			}
-
-			if config.CertsDir != tt.expectedCerts {
-				t.Errorf("Expected CertsDir %q, got %q", tt.expectedCerts, config.CertsDir)
+			if config.PylonEndpoint != tt.expectedPylon {
+				t.Errorf("Expected PylonEndpoint %q, got %q", tt.expectedPylon, config.PylonEndpoint)
 			}
 		})
 	}
@@ -167,42 +128,42 @@ func TestGetListenAddress(t *testing.T) {
 	}
 }
 
-// TestGetCertsDirectory tests the GetCertsDirectory method
-func TestGetCertsDirectory(t *testing.T) {
+// TestGetPylonEndpoint tests the GetPylonEndpoint method
+func TestGetPylonEndpoint(t *testing.T) {
 	tests := []struct {
-		name     string
-		certsDir string
-		expected string
+		name          string
+		pylonEndpoint string
+		expected      string
 	}{
 		{
-			name:     "default directory",
-			certsDir: "certs",
-			expected: "certs",
+			name:          "default endpoint",
+			pylonEndpoint: "http://pylon:8000",
+			expected:      "http://pylon:8000",
 		},
 		{
-			name:     "custom directory",
-			certsDir: "/custom/path/certs",
-			expected: "/custom/path/certs",
+			name:          "custom endpoint",
+			pylonEndpoint: "http://custom-pylon:9000/",
+			expected:      "http://custom-pylon:9000/",
 		},
 		{
-			name:     "relative path",
-			certsDir: "./certs",
-			expected: "./certs",
+			name:          "without trailing slash",
+			pylonEndpoint: "http://pylon:8080",
+			expected:      "http://pylon:8080",
 		},
 		{
-			name:     "empty directory",
-			certsDir: "",
-			expected: "",
+			name:          "empty endpoint",
+			pylonEndpoint: "",
+			expected:      "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := &Config{
-				CertsDir: tt.certsDir,
+				PylonEndpoint: tt.pylonEndpoint,
 			}
 
-			result := config.GetCertsDirectory()
+			result := config.GetPylonEndpoint()
 			if result != tt.expected {
 				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}
@@ -213,58 +174,44 @@ func TestGetCertsDirectory(t *testing.T) {
 // TestConfigStruct tests the Config struct initialization
 func TestConfigStruct(t *testing.T) {
 	config := &Config{
-		ListenAddr: ":8080",
-		CertsDir:   "certs",
+		ListenAddr:    ":8080",
+		PylonEndpoint: "http://pylon:8000",
 	}
 
 	if config.ListenAddr != ":8080" {
 		t.Errorf("Expected ListenAddr :8080, got %s", config.ListenAddr)
 	}
 
-	if config.CertsDir != "certs" {
-		t.Errorf("Expected CertsDir certs, got %s", config.CertsDir)
+	if config.PylonEndpoint != "http://pylon:8000" {
+		t.Errorf("Expected PylonEndpoint http://pylon:8000, got %s", config.PylonEndpoint)
 	}
 }
 
 // TestNewConfigDefaults tests that NewConfig sets proper defaults
 func TestNewConfigDefaults(t *testing.T) {
-	// Save original state
+	// Save original args and restore flags after test; environment managed via t.Setenv
 	originalArgs := os.Args
-	originalEnvListenAddr := os.Getenv("NEXUS_LISTEN_ADDR")
-	originalEnvCertsDir := os.Getenv("NEXUS_CERTS_DIR")
-
-	// Clean up after test
 	defer func() {
 		os.Args = originalArgs
-		if originalEnvListenAddr != "" {
-			os.Setenv("NEXUS_LISTEN_ADDR", originalEnvListenAddr)
-		} else {
-			os.Unsetenv("NEXUS_LISTEN_ADDR")
-		}
-		if originalEnvCertsDir != "" {
-			os.Setenv("NEXUS_CERTS_DIR", originalEnvCertsDir)
-		} else {
-			os.Unsetenv("NEXUS_CERTS_DIR")
-		}
 		flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	}()
 
 	// Clear environment and args
 	os.Args = []string{"program"}
-	os.Unsetenv("NEXUS_LISTEN_ADDR")
-	os.Unsetenv("NEXUS_CERTS_DIR")
+	t.Setenv("NEXUS_AUTH_LISTEN_ADDR", "")
+	t.Setenv("NEXUS_PYLON_ENDPOINT", "")
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 	config := NewConfig()
 
 	expectedListenAddr := ":8080"
-	expectedCertsDir := "certs"
+	expectedPylon := "http://pylon:8000"
 
 	if config.ListenAddr != expectedListenAddr {
 		t.Errorf("Expected default ListenAddr %q, got %q", expectedListenAddr, config.ListenAddr)
 	}
 
-	if config.CertsDir != expectedCertsDir {
-		t.Errorf("Expected default CertsDir %q, got %q", expectedCertsDir, config.CertsDir)
+	if config.PylonEndpoint != expectedPylon {
+		t.Errorf("Expected default PylonEndpoint %q, got %q", expectedPylon, config.PylonEndpoint)
 	}
 }
