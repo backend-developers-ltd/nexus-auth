@@ -557,7 +557,7 @@ func TestGenerate_Success(t *testing.T) {
 	outDir := t.TempDir()
 	ss58 := "TEST_SS58_ADDRESS"
 
-	if err := a.Generate(outDir, 1, ss58, 3650); err != nil {
+	if err := a.Generate(ss58, outDir, 1, 3650, false); err != nil {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 
@@ -602,7 +602,7 @@ func TestGenerate_PropagatesErrors(t *testing.T) {
 		a := NewAuth(config)
 
 		outDir := t.TempDir()
-		if err := a.Generate(outDir, 1, "ADDR", 3650); err == nil {
+		if err := a.Generate("ADDR", outDir, 1, 3650, false); err == nil {
 			t.Fatalf("expected error but got nil")
 		}
 	})
@@ -632,8 +632,89 @@ func TestGenerate_PropagatesErrors(t *testing.T) {
 		}
 		_ = f.Close()
 		outDir := f.Name()
-		if err := a.Generate(outDir, 1, "ADDR", 3650); err == nil {
+		if err := a.Generate("ADDR", outDir, 1, 3650, false); err == nil {
 			t.Fatalf("expected error due to invalid output dir but got nil")
 		}
 	})
+}
+
+func TestGenerate_SkipWhenFilesExist_NoForce(t *testing.T) {
+	// Pylon server that fails if called; we expect no call when skipping
+	called := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+	a := NewAuth(config)
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "client.key")
+	crtPath := filepath.Join(dir, "client.crt")
+
+	origKey := []byte("ORIGINAL-KEY")
+	origCrt := []byte("ORIGINAL-CRT")
+	if err := os.WriteFile(keyPath, origKey, 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+	if err := os.WriteFile(crtPath, origCrt, 0o644); err != nil {
+		t.Fatalf("write crt: %v", err)
+	}
+
+	// Should skip and not call Pylon
+	if err := a.Generate("ADDR", dir, 1, 3650, false); err != nil {
+		t.Fatalf("Generate returned error on skip: %v", err)
+	}
+	if called {
+		t.Fatalf("expected no call to pylon when files exist and force=false")
+	}
+
+	// Ensure files unchanged
+	k2, _ := os.ReadFile(keyPath)
+	c2, _ := os.ReadFile(crtPath)
+	if string(k2) != string(origKey) || string(c2) != string(origCrt) {
+		t.Fatalf("files were modified despite skip")
+	}
+}
+
+func TestGenerate_ForceRecreate_WhenFilesExist(t *testing.T) {
+	// Deterministic seed
+	seed := make([]byte, ed25519.SeedSize)
+	for i := range seed {
+		seed[i] = byte(i)
+	}
+	seedHex := hex.EncodeToString(seed)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = fmt.Fprintf(w, `{"algorithm":1,"public_key":"IGN","private_key":"%s"}`, seedHex)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+	a := NewAuth(config)
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "client.key")
+	crtPath := filepath.Join(dir, "client.crt")
+
+	_ = os.WriteFile(keyPath, []byte("OLDKEY"), 0o600)
+	_ = os.WriteFile(crtPath, []byte("OLDCRT"), 0o644)
+
+	if err := a.Generate("ADDR", dir, 1, 3650, true); err != nil {
+		t.Fatalf("Generate with force failed: %v", err)
+	}
+
+	k2, _ := os.ReadFile(keyPath)
+	c2, _ := os.ReadFile(crtPath)
+	if string(k2) == "OLDKEY" || string(c2) == "OLDCRT" {
+		t.Fatalf("expected files to be overwritten with force=true")
+	}
 }

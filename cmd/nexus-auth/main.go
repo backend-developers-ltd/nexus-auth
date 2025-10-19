@@ -26,7 +26,7 @@ func run(args []string) int {
 		return cmdRun(args[1:])
 	case "generate":
 		return cmdGenerate(args[1:])
-	case "-h", "--help", "help":
+	case "-h", "-help", "--help", "help":
 		printUsage()
 		return 0
 	default:
@@ -38,12 +38,12 @@ func run(args []string) int {
 
 func printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println("  nexus-auth run [--listen-addr addr] [--pylon-endpoint url]")
-	fmt.Println("  nexus-auth generate [--output-dir dir] [--pylon-endpoint url] [--algorithm n] [--not-after-days n] --ss58-address addr")
+	fmt.Println("  nexus-auth run [-listen-addr addr] [-pylon-endpoint url]")
+	fmt.Println("  nexus-auth generate -ss58-address addr [-output-dir dir] [-pylon-endpoint url] [-algorithm n] [-not-after-days n] [-force-recreate]")
 	fmt.Println("")
 	fmt.Println("Subcommands:")
 	fmt.Println("  run       Start the auth server (default behavior previously in main)")
-	fmt.Println("  generate  Generate Ed25519 keypair via Pylon and write client.key and client.crt to --output-dir (default ./certs)")
+	fmt.Println("  generate  Generate Ed25519 keypair via Pylon and write client.key and client.crt to -output-dir (default ./certs)")
 }
 
 func cmdRun(args []string) int {
@@ -80,17 +80,18 @@ func cmdGenerate(args []string) int {
 
 	fs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	pylonEndpoint := fs.String("pylon-endpoint", "", "Pylon service endpoint base URL (overrides env/default)")
+	ss58Address := fs.String("ss58-address", "", "SS58 address to place in certificate Subject Organization (O)")
 	algorithm := fs.Int("algorithm", 1, "Algorithm identifier to request from Pylon")
 	outputDir := fs.String("output-dir", "./certs", "Directory to write client.key and client.crt")
 	notAfterDays := fs.Int("not-after-days", 365*10, "Number of days until certificate expiration (default 3650 days)")
-	ss58 := fs.String("ss58-address", "", "SS58 address to place in certificate Subject Organization (O)")
+	forceRecreate := fs.Bool("force-recreate", false, "Force re-creation of client.key and client.crt even if they already exist")
+	pylonEndpoint := fs.String("pylon-endpoint", "", "Pylon service endpoint base URL (overrides env/default)")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if strings.TrimSpace(*ss58) == "" {
-		fmt.Fprintln(os.Stderr, "--ss58-address is required")
+	if strings.TrimSpace(*ss58Address) == "" {
+		fmt.Fprintln(os.Stderr, "-ss58-address is required")
 		fs.Usage()
 		return 2
 	}
@@ -100,7 +101,7 @@ func cmdGenerate(args []string) int {
 	}
 
 	a := auth.NewAuth(config)
-	if err := a.Generate(*outputDir, *algorithm, *ss58, *notAfterDays); err != nil {
+	if err := a.Generate(*ss58Address, *outputDir, *algorithm, *notAfterDays, *forceRecreate); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to generate a certificate: %v\n", err)
 		return 1
 	}
