@@ -1,6 +1,6 @@
 # Project
 BINARY_NAME=nexus-auth
-DOCKER_NAME=nexus-auth
+DOCKER_NAME=backenddevelopersltd/nexus-auth
 DOCKER_TAG=latest
 
 # Build flags
