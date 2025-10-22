@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/ed25519"
+	"log"
 	"sync"
 	"time"
 )
@@ -90,7 +91,9 @@ func (c *PublicKeyCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	count := len(c.entries)
 	c.entries = make(map[string]cacheEntry)
+	log.Printf("Cleared cache (%d entries removed)", count)
 }
 
 // CleanExpired removes all expired entries from the cache
@@ -100,10 +103,15 @@ func (c *PublicKeyCache) CleanExpired() {
 	defer c.mu.Unlock()
 
 	now := time.Now()
+	count := 0
 	for key, entry := range c.entries {
 		if now.After(entry.expiresAt) {
 			delete(c.entries, key)
+			count++
 		}
+	}
+	if count > 0 {
+		log.Printf("Cleaned %d expired cache entries", count)
 	}
 }
 
@@ -125,4 +133,5 @@ func (c *PublicKeyCache) cleanupLoop(interval time.Duration) {
 // Stop stops the background cleanup goroutine
 func (c *PublicKeyCache) Stop() {
 	close(c.stopChan)
+	log.Printf("Stopped cache cleanup goroutine")
 }

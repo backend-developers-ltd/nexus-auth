@@ -283,8 +283,11 @@ func (a *Auth) loadExpectedPublicKey(orgName string) (ed25519.PublicKey, error) 
 
 	// Check cache first
 	if cachedKey, found := a.cache.Get(sanitizedOrgName); found {
+		log.Printf("Cache hit for organization '%s'", sanitizedOrgName)
 		return cachedKey, nil
 	}
+
+	log.Printf("Cache miss for organization '%s'", sanitizedOrgName)
 
 	// Cache miss - fetch from Pylon
 	resp, err := a.pylonClient.GetCertificate(sanitizedOrgName)
