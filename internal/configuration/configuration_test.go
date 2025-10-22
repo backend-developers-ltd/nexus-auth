@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"testing"
+	"time"
 )
 
 // TestNewConfig tests the NewConfig function with defaults and env only (CLI flags ignored)
@@ -213,5 +214,80 @@ func TestNewConfigDefaults(t *testing.T) {
 
 	if config.PylonEndpoint != expectedPylon {
 		t.Errorf("Expected default PylonEndpoint %q, got %q", expectedPylon, config.PylonEndpoint)
+	}
+}
+
+// TestConfig_CacheDurationDefault tests default cache duration
+func TestConfig_CacheDurationDefault(t *testing.T) {
+	t.Setenv("NEXUS_AUTH_CACHE_DURATION_MINS", "")
+
+	config := NewConfig()
+
+	if config.CacheDurationMins != 15 {
+		t.Errorf("Expected default cache duration 15 minutes, got %d", config.CacheDurationMins)
+	}
+
+	duration := config.GetCacheDuration()
+	expected := 15 * time.Minute
+	if duration != expected {
+		t.Errorf("Expected cache duration %v, got %v", expected, duration)
+	}
+}
+
+// TestConfig_CacheDurationFromEnv tests cache duration from environment
+func TestConfig_CacheDurationFromEnv(t *testing.T) {
+	t.Setenv("NEXUS_AUTH_CACHE_DURATION_MINS", "30")
+
+	config := NewConfig()
+
+	if config.CacheDurationMins != 30 {
+		t.Errorf("Expected cache duration 30 minutes from env, got %d", config.CacheDurationMins)
+	}
+
+	duration := config.GetCacheDuration()
+	expected := 30 * time.Minute
+	if duration != expected {
+		t.Errorf("Expected cache duration %v, got %v", expected, duration)
+	}
+}
+
+// TestConfig_CacheDurationInvalidEnv tests invalid cache duration in environment
+func TestConfig_CacheDurationInvalidEnv(t *testing.T) {
+	t.Setenv("NEXUS_AUTH_CACHE_DURATION_MINS", "invalid")
+
+	config := NewConfig()
+
+	// Should fall back to default
+	if config.CacheDurationMins != 15 {
+		t.Errorf("Expected default cache duration 15 minutes for invalid env, got %d", config.CacheDurationMins)
+	}
+}
+
+// TestConfig_CacheDurationNegativeEnv tests negative cache duration in environment
+func TestConfig_CacheDurationNegativeEnv(t *testing.T) {
+	t.Setenv("NEXUS_AUTH_CACHE_DURATION_MINS", "-10")
+
+	config := NewConfig()
+
+	// Should fall back to default for negative values
+	if config.CacheDurationMins != 15 {
+		t.Errorf("Expected default cache duration 15 minutes for negative env, got %d", config.CacheDurationMins)
+	}
+}
+
+// TestConfig_CacheDurationZeroEnv tests zero cache duration in environment
+func TestConfig_CacheDurationZeroEnv(t *testing.T) {
+	t.Setenv("NEXUS_AUTH_CACHE_DURATION_MINS", "0")
+
+	config := NewConfig()
+
+	// Zero is valid (disables caching)
+	if config.CacheDurationMins != 0 {
+		t.Errorf("Expected cache duration 0 minutes from env, got %d", config.CacheDurationMins)
+	}
+
+	duration := config.GetCacheDuration()
+	if duration != 0 {
+		t.Errorf("Expected cache duration 0, got %v", duration)
 	}
 }

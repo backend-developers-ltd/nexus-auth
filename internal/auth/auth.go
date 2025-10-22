@@ -25,6 +25,7 @@ import (
 type Auth struct {
 	config      *configuration.Config
 	pylonClient *pylon.Client
+	cache       *PublicKeyCache
 }
 
 // NewAuth creates a new auth instance
@@ -32,6 +33,7 @@ func NewAuth(config *configuration.Config) *Auth {
 	return &Auth{
 		config:      config,
 		pylonClient: pylon.New(config.GetPylonEndpoint()),
+		cache:       NewPublicKeyCache(config.GetCacheDuration()),
 	}
 }
 
@@ -271,6 +273,7 @@ func (a *Auth) sanitizeOrgName(orgName string) (string, error) {
 }
 
 // loadExpectedPublicKey fetches expected ed25519 public key for given organization (hotkey) from Pylon
+// Uses cache to avoid repeated requests for the same hotkey
 func (a *Auth) loadExpectedPublicKey(orgName string) (ed25519.PublicKey, error) {
 	// Sanitize the organization name to prevent path traversal attacks
 	sanitizedOrgName, err := a.sanitizeOrgName(orgName)
@@ -278,6 +281,12 @@ func (a *Auth) loadExpectedPublicKey(orgName string) (ed25519.PublicKey, error) 
 		return nil, fmt.Errorf("invalid organization name: %v", err)
 	}
 
+	// Check cache first
+	if cachedKey, found := a.cache.Get(sanitizedOrgName); found {
+		return cachedKey, nil
+	}
+
+	// Cache miss - fetch from Pylon
 	resp, err := a.pylonClient.GetCertificate(sanitizedOrgName)
 	if err != nil {
 		return nil, err
@@ -293,7 +302,12 @@ func (a *Auth) loadExpectedPublicKey(orgName string) (ed25519.PublicKey, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode public_key as hex: %v", err)
 	}
-	return ed25519.PublicKey(decoded), nil
+	publicKey := ed25519.PublicKey(decoded)
+
+	// Store in cache
+	a.cache.Set(sanitizedOrgName, publicKey)
+
+	return publicKey, nil
 }
 
 // validatePublicKey validates the certificate's public key against the expected public key

@@ -177,7 +177,11 @@ func TestLoadExpectedPublicKey(t *testing.T) {
 	defer ts.Close()
 
 	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
-	a := &Auth{config: config, pylonClient: pylon.New(config.PylonEndpoint)}
+	a := &Auth{
+		config:      config,
+		pylonClient: pylon.New(config.PylonEndpoint),
+		cache:       NewPublicKeyCache(config.GetCacheDuration()),
+	}
 
 	tests := []struct {
 		name        string
