@@ -193,7 +193,6 @@ func TestLoadExpectedPublicKey(t *testing.T) {
 		{name: "missing key", orgName: "missing", expectError: true},
 		{name: "wrong algorithm", orgName: "wrongalgo", expectError: true},
 		{name: "not found", orgName: "unknown", expectError: true},
-		{name: "empty", orgName: "", expectError: true},
 	}
 
 	for _, tt := range tests {

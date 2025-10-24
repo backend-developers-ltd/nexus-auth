@@ -186,15 +186,38 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load the expected public key from Pylon using the organization name as hotkey
-	expectedPub, err := a.loadExpectedPublicKey(orgName)
+	// Sanitize the organization name to prevent path traversal attacks
+	sanitizedOrgName, err := a.sanitizeOrgName(orgName)
 	if err != nil {
-		log.Printf("Failed to load expected public key for organization '%s': %v", orgName, err)
+		log.Printf("Invalid organization name '%s': %v", orgName, err)
 		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: Organization not authorized")); err != nil {
+		if _, err := w.Write([]byte("Access denied: Invalid organization name")); err != nil {
 			log.Printf("failed to write response body: %v", err)
 		}
 		return
+	}
+
+	// Check cache first
+	var expectedPub ed25519.PublicKey
+	if cachedKey, found := a.cache.Get(sanitizedOrgName); found {
+		log.Printf("Cache hit for organization '%s'", sanitizedOrgName)
+		expectedPub = cachedKey
+	} else {
+		log.Printf("Cache miss for organization '%s'", sanitizedOrgName)
+
+		// Cache miss - load from Pylon
+		expectedPub, err = a.loadExpectedPublicKey(sanitizedOrgName)
+		if err != nil {
+			log.Printf("Failed to load expected public key for organization '%s': %v", sanitizedOrgName, err)
+			w.WriteHeader(http.StatusForbidden)
+			if _, err := w.Write([]byte("Access denied: Organization not authorized")); err != nil {
+				log.Printf("failed to write response body: %v", err)
+			}
+			return
+		}
+
+		// Store in cache
+		a.cache.Set(sanitizedOrgName, expectedPub)
 	}
 
 	// Validate the certificate against the expected public key
@@ -273,24 +296,10 @@ func (a *Auth) sanitizeOrgName(orgName string) (string, error) {
 }
 
 // loadExpectedPublicKey fetches expected ed25519 public key for given organization (hotkey) from Pylon
-// Uses cache to avoid repeated requests for the same hotkey
+// Note: orgName should already be sanitized by the caller
 func (a *Auth) loadExpectedPublicKey(orgName string) (ed25519.PublicKey, error) {
-	// Sanitize the organization name to prevent path traversal attacks
-	sanitizedOrgName, err := a.sanitizeOrgName(orgName)
-	if err != nil {
-		return nil, fmt.Errorf("invalid organization name: %v", err)
-	}
-
-	// Check cache first
-	if cachedKey, found := a.cache.Get(sanitizedOrgName); found {
-		log.Printf("Cache hit for organization '%s'", sanitizedOrgName)
-		return cachedKey, nil
-	}
-
-	log.Printf("Cache miss for organization '%s'", sanitizedOrgName)
-
-	// Cache miss - fetch from Pylon
-	resp, err := a.pylonClient.GetCertificate(sanitizedOrgName)
+	// Fetch from Pylon
+	resp, err := a.pylonClient.GetCertificate(orgName)
 	if err != nil {
 		return nil, err
 	}
@@ -306,9 +315,6 @@ func (a *Auth) loadExpectedPublicKey(orgName string) (ed25519.PublicKey, error) 
 		return nil, fmt.Errorf("failed to decode public_key as hex: %v", err)
 	}
 	publicKey := ed25519.PublicKey(decoded)
-
-	// Store in cache
-	a.cache.Set(sanitizedOrgName, publicKey)
 
 	return publicKey, nil
 }
