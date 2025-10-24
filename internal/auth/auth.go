@@ -146,10 +146,7 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 	clientCertHeader := r.Header.Get("X-Client-Cert")
 	if clientCertHeader == "" {
 		log.Printf("No X-Client-Cert header found")
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: No client certificate")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
+		a.writeForbidden(w, "Access denied: No client certificate")
 		return
 	}
 
@@ -157,10 +154,7 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 	decodedCert, err := url.QueryUnescape(clientCertHeader)
 	if err != nil {
 		log.Printf("Failed to URL decode certificate: %v", err)
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: Invalid certificate encoding")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
+		a.writeForbidden(w, "Access denied: Invalid certificate encoding")
 		return
 	}
 
@@ -168,10 +162,7 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 	cert, err := a.parseCertificate(decodedCert)
 	if err != nil {
 		log.Printf("Failed to parse certificate: %v", err)
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: Invalid certificate")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
+		a.writeForbidden(w, "Access denied: Invalid certificate")
 		return
 	}
 
@@ -179,10 +170,7 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 	orgName := a.extractOrganizationName(cert)
 	if orgName == "" {
 		log.Printf("No organization name found in certificate")
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: No organization in certificate")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
+		a.writeForbidden(w, "Access denied: No organization in certificate")
 		return
 	}
 
@@ -190,50 +178,75 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 	sanitizedOrgName, err := a.sanitizeOrgName(orgName)
 	if err != nil {
 		log.Printf("Invalid organization name '%s': %v", orgName, err)
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: Invalid organization name")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
+		a.writeForbidden(w, "Access denied: Invalid organization name")
 		return
 	}
 
 	// Check cache first
-	var expectedPub ed25519.PublicKey
 	if cachedKey, found := a.cache.Get(sanitizedOrgName); found {
 		log.Printf("Cache hit for organization '%s'", sanitizedOrgName)
-		expectedPub = cachedKey
+
+		// Validate with cached key
+		if err := a.validatePublicKey(cert, cachedKey); err != nil {
+			// Validation failed with cached key - invalidate cache and retry with fresh data
+			log.Printf("Certificate validation failed with cached key for organization '%s', invalidating cache and retrying", sanitizedOrgName)
+			a.cache.Invalidate(sanitizedOrgName)
+
+			// Fetch fresh public key from Pylon
+			expectedPub, err := a.loadExpectedPublicKey(sanitizedOrgName)
+			if err != nil {
+				log.Printf("Failed to load expected public key for organization '%s' on retry: %v", sanitizedOrgName, err)
+				a.writeForbidden(w, "Access denied: Organization not authorized")
+				return
+			}
+			// Store fresh key in cache
+			a.cache.Set(sanitizedOrgName, expectedPub)
+
+			// Validate again with fresh key
+			if err := a.validatePublicKey(cert, expectedPub); err != nil {
+				log.Printf("Certificate validation failed for organization '%s' even after cache refresh: %v", orgName, err)
+				a.writeForbidden(w, "Access denied: Certificate validation failed")
+				return
+			}
+		}
 	} else {
 		log.Printf("Cache miss for organization '%s'", sanitizedOrgName)
 
 		// Cache miss - load from Pylon
-		expectedPub, err = a.loadExpectedPublicKey(sanitizedOrgName)
+		expectedPub, err := a.loadExpectedPublicKey(sanitizedOrgName)
 		if err != nil {
 			log.Printf("Failed to load expected public key for organization '%s': %v", sanitizedOrgName, err)
-			w.WriteHeader(http.StatusForbidden)
-			if _, err := w.Write([]byte("Access denied: Organization not authorized")); err != nil {
-				log.Printf("failed to write response body: %v", err)
-			}
+			a.writeForbidden(w, "Access denied: Organization not authorized")
 			return
 		}
-
 		// Store in cache
 		a.cache.Set(sanitizedOrgName, expectedPub)
-	}
 
-	// Validate the certificate against the expected public key
-	if err := a.validatePublicKey(cert, expectedPub); err != nil {
-		log.Printf("Certificate validation failed for organization '%s': %v", orgName, err)
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: Certificate validation failed")); err != nil {
-			log.Printf("failed to write response body: %v", err)
+		// Validate with freshly loaded key
+		if err := a.validatePublicKey(cert, expectedPub); err != nil {
+			log.Printf("Certificate validation failed for organization '%s': %v", orgName, err)
+			a.writeForbidden(w, "Access denied: Certificate validation failed")
+			return
 		}
-		return
 	}
 
 	// Certificate is valid
 	log.Printf("Certificate validation successful for organization '%s'", orgName)
+	a.writeOK(w, "Access granted")
+}
+
+// writeForbidden writes a 403 Forbidden response with the given message
+func (a *Auth) writeForbidden(w http.ResponseWriter, message string) {
+	w.WriteHeader(http.StatusForbidden)
+	if _, err := w.Write([]byte(message)); err != nil {
+		log.Printf("failed to write response body: %v", err)
+	}
+}
+
+// writeOK writes a 200 OK response with the given message
+func (a *Auth) writeOK(w http.ResponseWriter, message string) {
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte("Access granted")); err != nil {
+	if _, err := w.Write([]byte(message)); err != nil {
 		log.Printf("failed to write response body: %v", err)
 	}
 }

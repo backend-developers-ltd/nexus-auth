@@ -236,3 +236,50 @@ func TestPublicKeyCache_Stop(t *testing.T) {
 		t.Error("Cached key doesn't match after Stop")
 	}
 }
+
+func TestPublicKeyCache_Invalidate(t *testing.T) {
+	cache := NewPublicKeyCache(5 * time.Minute)
+
+	pubKey1, _, _ := ed25519.GenerateKey(rand.Reader)
+	pubKey2, _, _ := ed25519.GenerateKey(rand.Reader)
+
+	cache.Set("hotkey1", pubKey1)
+	cache.Set("hotkey2", pubKey2)
+
+	// Both should be cached
+	_, found := cache.Get("hotkey1")
+	if !found {
+		t.Error("Expected cache hit for hotkey1")
+	}
+	_, found = cache.Get("hotkey2")
+	if !found {
+		t.Error("Expected cache hit for hotkey2")
+	}
+
+	// Invalidate hotkey1
+	cache.Invalidate("hotkey1")
+
+	// hotkey1 should be gone
+	_, found = cache.Get("hotkey1")
+	if found {
+		t.Error("Expected cache miss for hotkey1 after invalidation")
+	}
+
+	// hotkey2 should still be there
+	_, found = cache.Get("hotkey2")
+	if !found {
+		t.Error("Expected cache hit for hotkey2 after invalidating hotkey1")
+	}
+
+	// Invalidating non-existent key should not panic
+	cache.Invalidate("nonexistent")
+}
+
+func TestPublicKeyCache_InvalidateZeroDuration(t *testing.T) {
+	// Cache with zero duration
+	cache := NewPublicKeyCache(0)
+	defer cache.Stop()
+
+	// Invalidate should be a no-op and not panic
+	cache.Invalidate("anykey")
+}

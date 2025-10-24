@@ -82,6 +82,22 @@ func (c *PublicKeyCache) Set(hotkey string, publicKey ed25519.PublicKey) {
 	}
 }
 
+// Invalidate removes a specific entry from the cache
+// If caching is disabled (duration <= 0), this is a no-op
+func (c *PublicKeyCache) Invalidate(hotkey string) {
+	if c.duration <= 0 {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.entries[hotkey]; exists {
+		delete(c.entries, hotkey)
+		log.Printf("Invalidated cache entry for '%s'", hotkey)
+	}
+}
+
 // Clear removes all entries from the cache
 func (c *PublicKeyCache) Clear() {
 	c.mu.Lock()
