@@ -19,7 +19,7 @@ func NewConfig() *Config {
 	config := &Config{
 		ListenAddr:        ":8080",             // default HTTP port
 		PylonEndpoint:     "http://pylon:8000", // default Pylon endpoint
-		CacheDurationMins: 15,                  // default cache duration in minutes
+		CacheDurationMins: 12,                  // default cache duration in minutes
 	}
 
 	// Environment variables override defaults

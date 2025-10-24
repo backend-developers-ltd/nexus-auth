@@ -35,15 +35,8 @@ func NewPublicKeyCache(duration time.Duration) *PublicKeyCache {
 
 	// Start background cleanup goroutine only if caching is enabled
 	if duration > 0 {
-		// Clean every duration/2, but keep it between 1 and 5 minutes
-		cleanInterval := duration / 2
-		if cleanInterval < time.Minute {
-			cleanInterval = time.Minute
-		}
-		if cleanInterval > 5*time.Minute {
-			cleanInterval = 5 * time.Minute
-		}
-		go c.cleanupLoop(cleanInterval)
+		// Clean every duration/2, but keep it at least 1 minute
+		go c.cleanupLoop(max(duration/2, time.Minute))
 	}
 
 	return c

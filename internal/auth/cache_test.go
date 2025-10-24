@@ -187,9 +187,7 @@ func TestPublicKeyCache_ZeroDuration(t *testing.T) {
 }
 
 func TestPublicKeyCache_AutoCleanup(t *testing.T) {
-	// Create cache with 200ms duration (cleanup every 100ms or 1min, whichever is larger)
-	// Since 100ms < 1min, cleanup will run every 1min by default
-	// For testing, we'll use a shorter duration and verify manual cleanup works
+	// Create cache with 200ms duration (cleanup will run every 100ms automatically)
 	cache := NewPublicKeyCache(200 * time.Millisecond)
 	defer cache.Stop()
 
