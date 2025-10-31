@@ -99,29 +99,34 @@ func TestExtractOrganizationName(t *testing.T) {
 	auth := &Auth{}
 
 	tests := []struct {
-		name     string
-		orgNames []string
-		expected string
+		name        string
+		orgNames    []string
+		expected    string
+		expectError bool
 	}{
 		{
-			name:     "single organization",
-			orgNames: []string{"Test Organization"},
-			expected: "Test Organization",
+			name:        "single organization",
+			orgNames:    []string{"Test Organization"},
+			expected:    "Test Organization",
+			expectError: false,
 		},
 		{
-			name:     "multiple organizations",
-			orgNames: []string{"First Org", "Second Org"},
-			expected: "First Org",
+			name:        "multiple organizations",
+			orgNames:    []string{"First Org", "Second Org"},
+			expected:    "First Org",
+			expectError: false,
 		},
 		{
-			name:     "no organizations",
-			orgNames: []string{},
-			expected: "",
+			name:        "no organizations",
+			orgNames:    []string{},
+			expected:    "",
+			expectError: true,
 		},
 		{
-			name:     "nil organizations",
-			orgNames: nil,
-			expected: "",
+			name:        "nil organizations",
+			orgNames:    nil,
+			expected:    "",
+			expectError: true,
 		},
 	}
 
@@ -133,9 +138,18 @@ func TestExtractOrganizationName(t *testing.T) {
 				},
 			}
 
-			result := auth.extractOrganizationName(cert)
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
+			result, err := auth.extractOrganizationName(cert)
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if result != tt.expected {
+					t.Errorf("Expected %q, got %q", tt.expected, result)
+				}
 			}
 		})
 	}

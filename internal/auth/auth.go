@@ -166,19 +166,11 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract Organization Name (O) from certificate
-	orgName := a.extractOrganizationName(cert)
-	if orgName == "" {
-		log.Printf("No organization name found in certificate")
-		a.writeForbidden(w, "Access denied: No organization in certificate")
-		return
-	}
-
-	// Sanitize the organization name to prevent path traversal attacks
-	sanitizedOrgName, err := a.sanitizeOrgName(orgName)
+	// Extract and sanitize Organization Name (O) from certificate
+	sanitizedOrgName, err := a.extractOrganizationName(cert)
 	if err != nil {
-		log.Printf("Invalid organization name '%s': %v", orgName, err)
-		a.writeForbidden(w, "Access denied: Invalid organization name")
+		log.Printf("Failed to extract organization name: %v", err)
+		a.writeForbidden(w, "Access denied: Invalid organization in certificate")
 		return
 	}
 
@@ -204,7 +196,7 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 
 			// Validate again with fresh key
 			if err := a.validatePublicKey(cert, expectedPub); err != nil {
-				log.Printf("Certificate validation failed for organization '%s' even after cache refresh: %v", orgName, err)
+				log.Printf("Certificate validation failed for organization '%s' even after cache refresh: %v", sanitizedOrgName, err)
 				a.writeForbidden(w, "Access denied: Certificate validation failed")
 				return
 			}
@@ -224,14 +216,14 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Validate with freshly loaded key
 		if err := a.validatePublicKey(cert, expectedPub); err != nil {
-			log.Printf("Certificate validation failed for organization '%s': %v", orgName, err)
+			log.Printf("Certificate validation failed for organization '%s': %v", sanitizedOrgName, err)
 			a.writeForbidden(w, "Access denied: Certificate validation failed")
 			return
 		}
 	}
 
 	// Certificate is valid
-	log.Printf("Certificate validation successful for organization '%s'", orgName)
+	log.Printf("Certificate validation successful for organization '%s'", sanitizedOrgName)
 	a.writeOK(w, "Access granted")
 }
 
@@ -271,12 +263,14 @@ func (a *Auth) parseCertificate(certPEM string) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-// extractOrganizationName extracts the Organization Name (O) from the certificate
-func (a *Auth) extractOrganizationName(cert *x509.Certificate) string {
-	if len(cert.Subject.Organization) > 0 {
-		return cert.Subject.Organization[0]
+// extractOrganizationName extracts and sanitizes the Organization Name (O) from the certificate
+func (a *Auth) extractOrganizationName(cert *x509.Certificate) (string, error) {
+	if len(cert.Subject.Organization) == 0 {
+		return "", fmt.Errorf("no organization name found in certificate")
 	}
-	return ""
+
+	orgName := cert.Subject.Organization[0]
+	return a.sanitizeOrgName(orgName)
 }
 
 // sanitizeOrgName sanitizes the organization name to prevent path traversal attacks
