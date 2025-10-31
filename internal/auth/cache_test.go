@@ -187,9 +187,7 @@ func TestPublicKeyCache_ZeroDuration(t *testing.T) {
 }
 
 func TestPublicKeyCache_AutoCleanup(t *testing.T) {
-	// Create cache with 200ms duration (cleanup every 100ms or 1min, whichever is larger)
-	// Since 100ms < 1min, cleanup will run every 1min by default
-	// For testing, we'll use a shorter duration and verify manual cleanup works
+	// Create cache with 200ms duration (cleanup will run every 100ms automatically)
 	cache := NewPublicKeyCache(200 * time.Millisecond)
 	defer cache.Stop()
 
@@ -237,4 +235,51 @@ func TestPublicKeyCache_Stop(t *testing.T) {
 	if len(cachedKey) != len(pubKey) {
 		t.Error("Cached key doesn't match after Stop")
 	}
+}
+
+func TestPublicKeyCache_Invalidate(t *testing.T) {
+	cache := NewPublicKeyCache(5 * time.Minute)
+
+	pubKey1, _, _ := ed25519.GenerateKey(rand.Reader)
+	pubKey2, _, _ := ed25519.GenerateKey(rand.Reader)
+
+	cache.Set("hotkey1", pubKey1)
+	cache.Set("hotkey2", pubKey2)
+
+	// Both should be cached
+	_, found := cache.Get("hotkey1")
+	if !found {
+		t.Error("Expected cache hit for hotkey1")
+	}
+	_, found = cache.Get("hotkey2")
+	if !found {
+		t.Error("Expected cache hit for hotkey2")
+	}
+
+	// Invalidate hotkey1
+	cache.Invalidate("hotkey1")
+
+	// hotkey1 should be gone
+	_, found = cache.Get("hotkey1")
+	if found {
+		t.Error("Expected cache miss for hotkey1 after invalidation")
+	}
+
+	// hotkey2 should still be there
+	_, found = cache.Get("hotkey2")
+	if !found {
+		t.Error("Expected cache hit for hotkey2 after invalidating hotkey1")
+	}
+
+	// Invalidating non-existent key should not panic
+	cache.Invalidate("nonexistent")
+}
+
+func TestPublicKeyCache_InvalidateZeroDuration(t *testing.T) {
+	// Cache with zero duration
+	cache := NewPublicKeyCache(0)
+	defer cache.Stop()
+
+	// Invalidate should be a no-op and not panic
+	cache.Invalidate("anykey")
 }

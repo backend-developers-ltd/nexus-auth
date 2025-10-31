@@ -223,12 +223,12 @@ func TestConfig_CacheDurationDefault(t *testing.T) {
 
 	config := NewConfig()
 
-	if config.CacheDurationMins != 15 {
-		t.Errorf("Expected default cache duration 15 minutes, got %d", config.CacheDurationMins)
+	if config.CacheDurationMins != 12 {
+		t.Errorf("Expected default cache duration 12 minutes, got %d", config.CacheDurationMins)
 	}
 
 	duration := config.GetCacheDuration()
-	expected := 15 * time.Minute
+	expected := 12 * time.Minute
 	if duration != expected {
 		t.Errorf("Expected cache duration %v, got %v", expected, duration)
 	}
@@ -258,8 +258,8 @@ func TestConfig_CacheDurationInvalidEnv(t *testing.T) {
 	config := NewConfig()
 
 	// Should fall back to default
-	if config.CacheDurationMins != 15 {
-		t.Errorf("Expected default cache duration 15 minutes for invalid env, got %d", config.CacheDurationMins)
+	if config.CacheDurationMins != 12 {
+		t.Errorf("Expected default cache duration 12 minutes for invalid env, got %d", config.CacheDurationMins)
 	}
 }
 
@@ -270,8 +270,8 @@ func TestConfig_CacheDurationNegativeEnv(t *testing.T) {
 	config := NewConfig()
 
 	// Should fall back to default for negative values
-	if config.CacheDurationMins != 15 {
-		t.Errorf("Expected default cache duration 15 minutes for negative env, got %d", config.CacheDurationMins)
+	if config.CacheDurationMins != 12 {
+		t.Errorf("Expected default cache duration 12 minutes for negative env, got %d", config.CacheDurationMins)
 	}
 }
 

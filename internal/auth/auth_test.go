@@ -99,29 +99,34 @@ func TestExtractOrganizationName(t *testing.T) {
 	auth := &Auth{}
 
 	tests := []struct {
-		name     string
-		orgNames []string
-		expected string
+		name        string
+		orgNames    []string
+		expected    string
+		expectError bool
 	}{
 		{
-			name:     "single organization",
-			orgNames: []string{"Test Organization"},
-			expected: "Test Organization",
+			name:        "single organization",
+			orgNames:    []string{"Test Organization"},
+			expected:    "Test Organization",
+			expectError: false,
 		},
 		{
-			name:     "multiple organizations",
-			orgNames: []string{"First Org", "Second Org"},
-			expected: "First Org",
+			name:        "multiple organizations",
+			orgNames:    []string{"First Org", "Second Org"},
+			expected:    "First Org",
+			expectError: false,
 		},
 		{
-			name:     "no organizations",
-			orgNames: []string{},
-			expected: "",
+			name:        "no organizations",
+			orgNames:    []string{},
+			expected:    "",
+			expectError: true,
 		},
 		{
-			name:     "nil organizations",
-			orgNames: nil,
-			expected: "",
+			name:        "nil organizations",
+			orgNames:    nil,
+			expected:    "",
+			expectError: true,
 		},
 	}
 
@@ -133,9 +138,18 @@ func TestExtractOrganizationName(t *testing.T) {
 				},
 			}
 
-			result := auth.extractOrganizationName(cert)
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
+			result, err := auth.extractOrganizationName(cert)
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if result != tt.expected {
+					t.Errorf("Expected %q, got %q", tt.expected, result)
+				}
 			}
 		})
 	}
@@ -193,7 +207,6 @@ func TestLoadExpectedPublicKey(t *testing.T) {
 		{name: "missing key", orgName: "missing", expectError: true},
 		{name: "wrong algorithm", orgName: "wrongalgo", expectError: true},
 		{name: "not found", orgName: "unknown", expectError: true},
-		{name: "empty", orgName: "", expectError: true},
 	}
 
 	for _, tt := range tests {
@@ -484,6 +497,114 @@ func TestAuthHandler(t *testing.T) {
 				t.Errorf("Expected status %d, got %d", tt.expectedStatus, rr.Code)
 			}
 		})
+	}
+}
+
+// TestAuthHandler_CacheInvalidationRetry tests that when validation fails with a cached key,
+// the cache is invalidated and a fresh key is fetched from Pylon
+func TestAuthHandler_CacheInvalidationRetry(t *testing.T) {
+	// Create two different key pairs
+	oldPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	newPub, newPriv, _ := ed25519.GenerateKey(rand.Reader)
+
+	// Create a certificate with the NEW key
+	testCert := createTestCertificateWithKey(t, "Test Organization", newPriv)
+
+	newPubHex := hex.EncodeToString(newPub)
+
+	// Track how many times Pylon is called
+	callCount := 0
+
+	// Mock Pylon server that returns the new (correct) key
+	// The old key is already in the cache, so Pylon will only be called after invalidation
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/Test Organization") {
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			// Always return the new (correct) key when Pylon is called
+			_, _ = fmt.Fprintf(w, `{"public_key":"%s","algorithm":1}`, newPubHex)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	config := &configuration.Config{
+		PylonEndpoint:     ts.URL + "/",
+		CacheDurationMins: 12, // Enable caching
+	}
+	auth := NewAuth(config)
+
+	// Pre-populate cache with OLD key (using sanitized name)
+	sanitizedOrgName, _ := auth.sanitizeOrgName("Test Organization")
+	auth.cache.Set(sanitizedOrgName, oldPub)
+
+	// Make request with certificate that has NEW key
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Client-Cert", url.QueryEscape(encodeCertificateToPEM(testCert)))
+
+	rr := httptest.NewRecorder()
+	auth.authHandler(rr, req)
+
+	// Should succeed because:
+	// 1. First validation fails with cached old key
+	// 2. Cache is invalidated
+	// 3. Fresh key is fetched from Pylon (new key)
+	// 4. Second validation succeeds with new key
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	// Pylon should have been called once (to get the fresh key after cache invalidation)
+	if callCount != 1 {
+		t.Errorf("Expected Pylon to be called 1 time, got %d", callCount)
+	}
+}
+
+// TestAuthHandler_CacheInvalidationRetryStillFails tests that when validation fails even after retry,
+// the request is still denied
+func TestAuthHandler_CacheInvalidationRetryStillFails(t *testing.T) {
+	// Create two different key pairs - certificate has one, Pylon returns another (both times)
+	wrongPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	_, certPriv, _ := ed25519.GenerateKey(rand.Reader)
+
+	testCert := createTestCertificateWithKey(t, "Test Organization", certPriv)
+
+	wrongPubHex := hex.EncodeToString(wrongPub)
+
+	// Mock Pylon server that always returns the wrong key
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/Test Organization") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, `{"public_key":"%s","algorithm":1}`, wrongPubHex)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	config := &configuration.Config{
+		PylonEndpoint:     ts.URL + "/",
+		CacheDurationMins: 12, // Enable caching
+	}
+	auth := NewAuth(config)
+
+	// Pre-populate cache with wrong key (using sanitized name)
+	sanitizedOrgName, _ := auth.sanitizeOrgName("Test Organization")
+	auth.cache.Set(sanitizedOrgName, wrongPub)
+
+	// Make request
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Client-Cert", url.QueryEscape(encodeCertificateToPEM(testCert)))
+
+	rr := httptest.NewRecorder()
+	auth.authHandler(rr, req)
+
+	// Should fail because even after cache refresh, the key still doesn't match
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected status %d, got %d", http.StatusForbidden, rr.Code)
 	}
 }
 

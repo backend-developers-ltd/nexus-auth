@@ -146,10 +146,7 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 	clientCertHeader := r.Header.Get("X-Client-Cert")
 	if clientCertHeader == "" {
 		log.Printf("No X-Client-Cert header found")
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: No client certificate")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
+		a.writeForbidden(w, "Access denied: No client certificate")
 		return
 	}
 
@@ -157,10 +154,7 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 	decodedCert, err := url.QueryUnescape(clientCertHeader)
 	if err != nil {
 		log.Printf("Failed to URL decode certificate: %v", err)
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: Invalid certificate encoding")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
+		a.writeForbidden(w, "Access denied: Invalid certificate encoding")
 		return
 	}
 
@@ -168,49 +162,83 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 	cert, err := a.parseCertificate(decodedCert)
 	if err != nil {
 		log.Printf("Failed to parse certificate: %v", err)
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: Invalid certificate")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
+		a.writeForbidden(w, "Access denied: Invalid certificate")
 		return
 	}
 
-	// Extract Organization Name (O) from certificate
-	orgName := a.extractOrganizationName(cert)
-	if orgName == "" {
-		log.Printf("No organization name found in certificate")
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: No organization in certificate")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
-		return
-	}
-
-	// Load the expected public key from Pylon using the organization name as hotkey
-	expectedPub, err := a.loadExpectedPublicKey(orgName)
+	// Extract and sanitize Organization Name (O) from certificate
+	sanitizedOrgName, err := a.extractOrganizationName(cert)
 	if err != nil {
-		log.Printf("Failed to load expected public key for organization '%s': %v", orgName, err)
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: Organization not authorized")); err != nil {
-			log.Printf("failed to write response body: %v", err)
-		}
+		log.Printf("Failed to extract organization name: %v", err)
+		a.writeForbidden(w, "Access denied: Invalid organization in certificate")
 		return
 	}
 
-	// Validate the certificate against the expected public key
-	if err := a.validatePublicKey(cert, expectedPub); err != nil {
-		log.Printf("Certificate validation failed for organization '%s': %v", orgName, err)
-		w.WriteHeader(http.StatusForbidden)
-		if _, err := w.Write([]byte("Access denied: Certificate validation failed")); err != nil {
-			log.Printf("failed to write response body: %v", err)
+	// Check cache first
+	if cachedKey, found := a.cache.Get(sanitizedOrgName); found {
+		log.Printf("Cache hit for organization '%s'", sanitizedOrgName)
+
+		// Validate with cached key
+		if err := a.validatePublicKey(cert, cachedKey); err != nil {
+			// Validation failed with cached key - invalidate cache and retry with fresh data
+			log.Printf("Certificate validation failed with cached key for organization '%s', invalidating cache and retrying", sanitizedOrgName)
+			a.cache.Invalidate(sanitizedOrgName)
+
+			// Fetch fresh public key from Pylon
+			expectedPub, err := a.loadExpectedPublicKey(sanitizedOrgName)
+			if err != nil {
+				log.Printf("Failed to load expected public key for organization '%s' on retry: %v", sanitizedOrgName, err)
+				a.writeForbidden(w, "Access denied: Organization not authorized")
+				return
+			}
+			// Store fresh key in cache
+			a.cache.Set(sanitizedOrgName, expectedPub)
+
+			// Validate again with fresh key
+			if err := a.validatePublicKey(cert, expectedPub); err != nil {
+				log.Printf("Certificate validation failed for organization '%s' even after cache refresh: %v", sanitizedOrgName, err)
+				a.writeForbidden(w, "Access denied: Certificate validation failed")
+				return
+			}
 		}
-		return
+	} else {
+		log.Printf("Cache miss for organization '%s'", sanitizedOrgName)
+
+		// Cache miss - load from Pylon
+		expectedPub, err := a.loadExpectedPublicKey(sanitizedOrgName)
+		if err != nil {
+			log.Printf("Failed to load expected public key for organization '%s': %v", sanitizedOrgName, err)
+			a.writeForbidden(w, "Access denied: Organization not authorized")
+			return
+		}
+		// Store in cache
+		a.cache.Set(sanitizedOrgName, expectedPub)
+
+		// Validate with freshly loaded key
+		if err := a.validatePublicKey(cert, expectedPub); err != nil {
+			log.Printf("Certificate validation failed for organization '%s': %v", sanitizedOrgName, err)
+			a.writeForbidden(w, "Access denied: Certificate validation failed")
+			return
+		}
 	}
 
 	// Certificate is valid
-	log.Printf("Certificate validation successful for organization '%s'", orgName)
+	log.Printf("Certificate validation successful for organization '%s'", sanitizedOrgName)
+	a.writeOK(w, "Access granted")
+}
+
+// writeForbidden writes a 403 Forbidden response with the given message
+func (a *Auth) writeForbidden(w http.ResponseWriter, message string) {
+	w.WriteHeader(http.StatusForbidden)
+	if _, err := w.Write([]byte(message)); err != nil {
+		log.Printf("failed to write response body: %v", err)
+	}
+}
+
+// writeOK writes a 200 OK response with the given message
+func (a *Auth) writeOK(w http.ResponseWriter, message string) {
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte("Access granted")); err != nil {
+	if _, err := w.Write([]byte(message)); err != nil {
 		log.Printf("failed to write response body: %v", err)
 	}
 }
@@ -235,12 +263,14 @@ func (a *Auth) parseCertificate(certPEM string) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-// extractOrganizationName extracts the Organization Name (O) from the certificate
-func (a *Auth) extractOrganizationName(cert *x509.Certificate) string {
-	if len(cert.Subject.Organization) > 0 {
-		return cert.Subject.Organization[0]
+// extractOrganizationName extracts and sanitizes the Organization Name (O) from the certificate
+func (a *Auth) extractOrganizationName(cert *x509.Certificate) (string, error) {
+	if len(cert.Subject.Organization) == 0 {
+		return "", fmt.Errorf("no organization name found in certificate")
 	}
-	return ""
+
+	orgName := cert.Subject.Organization[0]
+	return a.sanitizeOrgName(orgName)
 }
 
 // sanitizeOrgName sanitizes the organization name to prevent path traversal attacks
@@ -273,24 +303,10 @@ func (a *Auth) sanitizeOrgName(orgName string) (string, error) {
 }
 
 // loadExpectedPublicKey fetches expected ed25519 public key for given organization (hotkey) from Pylon
-// Uses cache to avoid repeated requests for the same hotkey
+// Note: orgName should already be sanitized by the caller
 func (a *Auth) loadExpectedPublicKey(orgName string) (ed25519.PublicKey, error) {
-	// Sanitize the organization name to prevent path traversal attacks
-	sanitizedOrgName, err := a.sanitizeOrgName(orgName)
-	if err != nil {
-		return nil, fmt.Errorf("invalid organization name: %v", err)
-	}
-
-	// Check cache first
-	if cachedKey, found := a.cache.Get(sanitizedOrgName); found {
-		log.Printf("Cache hit for organization '%s'", sanitizedOrgName)
-		return cachedKey, nil
-	}
-
-	log.Printf("Cache miss for organization '%s'", sanitizedOrgName)
-
-	// Cache miss - fetch from Pylon
-	resp, err := a.pylonClient.GetCertificate(sanitizedOrgName)
+	// Fetch from Pylon
+	resp, err := a.pylonClient.GetCertificate(orgName)
 	if err != nil {
 		return nil, err
 	}
@@ -306,9 +322,6 @@ func (a *Auth) loadExpectedPublicKey(orgName string) (ed25519.PublicKey, error) 
 		return nil, fmt.Errorf("failed to decode public_key as hex: %v", err)
 	}
 	publicKey := ed25519.PublicKey(decoded)
-
-	// Store in cache
-	a.cache.Set(sanitizedOrgName, publicKey)
 
 	return publicKey, nil
 }

@@ -35,15 +35,8 @@ func NewPublicKeyCache(duration time.Duration) *PublicKeyCache {
 
 	// Start background cleanup goroutine only if caching is enabled
 	if duration > 0 {
-		// Clean every duration/2, but keep it between 1 and 5 minutes
-		cleanInterval := duration / 2
-		if cleanInterval < time.Minute {
-			cleanInterval = time.Minute
-		}
-		if cleanInterval > 5*time.Minute {
-			cleanInterval = 5 * time.Minute
-		}
-		go c.cleanupLoop(cleanInterval)
+		// Clean every duration/2, but keep it at least 1 minute
+		go c.cleanupLoop(max(duration/2, time.Minute))
 	}
 
 	return c
@@ -86,6 +79,22 @@ func (c *PublicKeyCache) Set(hotkey string, publicKey ed25519.PublicKey) {
 	c.entries[hotkey] = cacheEntry{
 		publicKey: publicKey,
 		expiresAt: time.Now().Add(c.duration),
+	}
+}
+
+// Invalidate removes a specific entry from the cache
+// If caching is disabled (duration <= 0), this is a no-op
+func (c *PublicKeyCache) Invalidate(hotkey string) {
+	if c.duration <= 0 {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.entries[hotkey]; exists {
+		delete(c.entries, hotkey)
+		log.Printf("Invalidated cache entry for '%s'", hotkey)
 	}
 }
 
