@@ -30,8 +30,7 @@ services:
   nginx:
     image: nginx:latest
     ports:
-      - "443:443"
-      - "80:80"
+      - "8443:8443"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/config_helpers:/etc/nginx/config_helpers:ro

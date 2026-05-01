@@ -19,15 +19,31 @@ For production, run the Go service behind your own ingress/reverse proxy as need
 - Comprehensive logging for debugging and monitoring
 - Simple configuration via environment variables or flags
 
-## Quick Start
+## Before You Start
 
-This section focuses on production usage.
+**You must update `nginx/conf.d/default.conf`** to point the `proxy_pass` in the `/` location block at your neuron or application service before starting the stack:
+
+```nginx
+location / {
+    auth_request /auth;
+    ...
+    proxy_pass http://your-neuron-service:8000;  # <-- replace with your service
+}
+```
+
+This is the only line that requires a manual change — everything else (ports, auth wiring, cert headers) is pre-configured.
+
+## Quick Start
 
 ### Configure the service
 
 Set configuration via environment variables or flags:
 - `NEXUS_AUTH_LISTEN_ADDR` (default: `:8080`)
 - `NEXUS_PYLON_ENDPOINT` (default: `http://pylon:8000`)
+- `NEXUS_PYLON_NETUID` (required)
+- `NEXUS_PYLON_IDENTITY_NAME` (required — the Pylon identity name for this node)
+- `NEXUS_PYLON_IDENTITY_TOKEN` (required — Bearer token for authenticating with Pylon identity endpoints)
+- `NEXUS_AUTH_CACHE_DURATION_MINS` (default: `15`)
 
 ### Running Auth Server
 
@@ -42,6 +58,9 @@ services:
     environment:
       NEXUS_AUTH_LISTEN_ADDR: ":8080"
       NEXUS_PYLON_ENDPOINT: "http://pylon:8000"
+      NEXUS_PYLON_NETUID: "1"
+      NEXUS_PYLON_IDENTITY_NAME: "miner"
+      NEXUS_PYLON_IDENTITY_TOKEN: "your-identity-token"
     volumes:
       - ./certs:/app/certs
     restart: unless-stopped
@@ -60,8 +79,13 @@ If both client.crt and client.key already exist in the output directory, generat
 
 Example:
 ```bash
-docker run --rm -it -v ./certs:/app/certs backenddevelopersltd/nexus-auth:latest generate \
-  -pylon-endpoint YOUR_PYLON_ENDPOINT \
+docker run --rm -it \
+  -v ./certs:/app/certs \
+  -e NEXUS_PYLON_ENDPOINT=YOUR_PYLON_ENDPOINT \
+  -e NEXUS_PYLON_NETUID=1 \
+  -e NEXUS_PYLON_IDENTITY_NAME=YOUR_IDENTITY_NAME \
+  -e NEXUS_PYLON_IDENTITY_TOKEN=YOUR_IDENTITY_TOKEN \
+  backenddevelopersltd/nexus-auth:latest generate \
   -ss58-address YOUR_SS58_ADDRESS
 ```
 Notes:
@@ -75,6 +99,7 @@ Configure your ingress/reverse proxy (e.g., Nginx/Envoy) to:
 - Terminate TLS and enforce mTLS for client connections
 - Call this service (GET /) as an auth_request or external authorization check
 - Grant or deny the original request based on the 200/403 response
+- The provided Nginx config also forwards the caller's connection IP as `X-Real-IP` (set from `$remote_addr`, not from a client-supplied header). It isn't tied to the authenticated identity the way `X-Hotkey` is — the auth service doesn't check or attest to it — and it will reflect an intermediate proxy's IP instead of the original client's if you place another reverse proxy or load balancer in front of this Nginx.
 
 ## Development
 
