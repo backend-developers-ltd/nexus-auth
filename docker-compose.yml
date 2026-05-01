@@ -4,6 +4,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      NEXUS_PYLON_ENDPOINT: http://pylon:8000
+      NEXUS_PYLON_NETUID: 1
+      NEXUS_PYLON_IDENTITY_NAME: ""
+      NEXUS_PYLON_IDENTITY_TOKEN: ""
+
     volumes:
       - ./certs:/app/certs
     restart: unless-stopped
@@ -15,7 +21,6 @@ services:
   pylon:
     image: backenddevelopersltd/bittensor-pylon:latest
     environment:
-      BITTENSOR_NETUID: 1
       BITTENSOR_NETWORK: ws://54.83.169.218:9946
       BITTENSOR_WALLET_PATH: ~/.bittensor/wallets
       BITTENSOR_WALLET_NAME: extra_validator_1

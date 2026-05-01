@@ -99,6 +99,7 @@ Configure your ingress/reverse proxy (e.g., Nginx/Envoy) to:
 - Terminate TLS and enforce mTLS for client connections
 - Call this service (GET /) as an auth_request or external authorization check
 - Grant or deny the original request based on the 200/403 response
+- Forward the client's SS58 address (hotkey) to the upstream as `X-Hotkey` (the provided Nginx config does this automatically)
 - The provided Nginx config also forwards the caller's connection IP as `X-Real-IP` (set from `$remote_addr`, not from a client-supplied header). It isn't tied to the authenticated identity the way `X-Hotkey` is — the auth service doesn't check or attest to it — and it will reflect an intermediate proxy's IP instead of the original client's if you place another reverse proxy or load balancer in front of this Nginx.
 
 ## Development
@@ -132,7 +133,7 @@ Common targets:
 3. **Auth Request**: Nginx makes internal subrequest to auth service with certificate headers
 4. **Certificate Validation**: Auth service validates certificate and checks against authorized certificates
 5. **Response**: Auth service returns 200 (authorized) or 403 (unauthorized)
-6. **Content Delivery**: Nginx serves protected content based on auth response
+6. **Content Delivery**: Nginx serves protected content based on auth response, forwarding the client's SS58 address (hotkey) to the upstream in the `X-Hotkey` header
 
 ### Certificate Validation Process
 

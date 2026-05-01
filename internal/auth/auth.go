@@ -209,6 +209,7 @@ func (a *Auth) authHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Certificate is valid
 	log.Printf("Certificate validation successful for organization '%s'", orgName)
+	w.Header().Set("X-Hotkey", orgName)
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("Access granted")); err != nil {
 		log.Printf("failed to write response body: %v", err)
