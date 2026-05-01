@@ -176,10 +176,10 @@ func TestLoadExpectedPublicKey(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/", NetUID: 1}
 	a := &Auth{
 		config:      config,
-		pylonClient: pylon.New(config.PylonEndpoint),
+		pylonClient: pylon.New(config.PylonEndpoint, config.NetUID, config.IdentityName, config.IdentityToken),
 		cache:       NewPublicKeyCache(config.GetCacheDuration()),
 	}
 
@@ -411,7 +411,7 @@ func TestAuthHandler(t *testing.T) {
 	defer ts.Close()
 
 	// Create auth instance configured to use mocked Pylon
-	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/", NetUID: 1}
 	auth := NewAuth(config)
 
 	// Create certificates with malicious organization names for security testing
@@ -543,7 +543,7 @@ func TestGenerate_Success(t *testing.T) {
 	seedHex := hex.EncodeToString(seed)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/identity/test-identity/subnet/1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -555,7 +555,7 @@ func TestGenerate_Success(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/", NetUID: 1, IdentityName: "test-identity"}
 	a := NewAuth(config)
 
 	outDir := t.TempDir()
@@ -596,13 +596,13 @@ func TestGenerate_Success(t *testing.T) {
 func TestGenerate_PropagatesErrors(t *testing.T) {
 	t.Run("pylon error", func(t *testing.T) {
 		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/v1/identity/test-identity/subnet/1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 		})
 		ts := httptest.NewServer(mux)
 		defer ts.Close()
 
-		config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+		config := &configuration.Config{PylonEndpoint: ts.URL + "/", NetUID: 1, IdentityName: "test-identity"}
 		a := NewAuth(config)
 
 		outDir := t.TempDir()
@@ -613,7 +613,7 @@ func TestGenerate_PropagatesErrors(t *testing.T) {
 
 	t.Run("file creation error", func(t *testing.T) {
 		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/v1/identity/test-identity/subnet/1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			// Return a minimal valid 32-byte seed as hex
@@ -626,7 +626,7 @@ func TestGenerate_PropagatesErrors(t *testing.T) {
 		ts := httptest.NewServer(mux)
 		defer ts.Close()
 
-		config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+		config := &configuration.Config{PylonEndpoint: ts.URL + "/", NetUID: 1, IdentityName: "test-identity"}
 		a := NewAuth(config)
 
 		// Create an output path that is a file (so MkdirAll will fail)
@@ -646,14 +646,14 @@ func TestGenerate_SkipWhenFilesExist_NoForce(t *testing.T) {
 	// Pylon server that fails if called; we expect no call when skipping
 	called := false
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/identity/test-identity/subnet/1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/", NetUID: 1, IdentityName: "test-identity"}
 	a := NewAuth(config)
 
 	dir := t.TempDir()
@@ -694,7 +694,7 @@ func TestGenerate_ForceRecreate_WhenFilesExist(t *testing.T) {
 	seedHex := hex.EncodeToString(seed)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/identity/test-identity/subnet/1/certificates/self", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = fmt.Fprintf(w, `{"algorithm":1,"public_key":"IGN","private_key":"%s"}`, seedHex)
@@ -702,7 +702,7 @@ func TestGenerate_ForceRecreate_WhenFilesExist(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	config := &configuration.Config{PylonEndpoint: ts.URL + "/"}
+	config := &configuration.Config{PylonEndpoint: ts.URL + "/", NetUID: 1, IdentityName: "test-identity"}
 	a := NewAuth(config)
 
 	dir := t.TempDir()

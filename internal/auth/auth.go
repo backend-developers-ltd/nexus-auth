@@ -32,7 +32,7 @@ type Auth struct {
 func NewAuth(config *configuration.Config) *Auth {
 	return &Auth{
 		config:      config,
-		pylonClient: pylon.New(config.GetPylonEndpoint()),
+		pylonClient: pylon.New(config.GetPylonEndpoint(), config.GetNetUID(), config.IdentityName, config.GetIdentityToken()),
 		cache:       NewPublicKeyCache(config.GetCacheDuration()),
 	}
 }
@@ -105,8 +105,8 @@ func (a *Auth) Generate(ss58Address string, outputDir string, algorithm int, not
 		Subject:      pkix.Name{Organization: []string{ss58Address}},
 		NotBefore:    now,
 		NotAfter:     now.Add(time.Duration(validDays) * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 	}
 
 	pub := priv.Public().(ed25519.PublicKey)

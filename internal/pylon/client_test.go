@@ -11,12 +11,21 @@ import (
 
 // TestNew verifies default HTTP client and base URL propagation
 func TestNew(t *testing.T) {
-	c := New("http://example/")
+	c := New("http://example/", 1, "test-identity", "test-token")
 	if c == nil {
 		t.Fatalf("New returned nil")
 	}
 	if c.BaseURL != "http://example/" {
 		t.Errorf("BaseURL not set, got %q", c.BaseURL)
+	}
+	if c.NetUID != 1 {
+		t.Errorf("NetUID not set, got %d", c.NetUID)
+	}
+	if c.IdentityName != "test-identity" {
+		t.Errorf("IdentityName not set, got %q", c.IdentityName)
+	}
+	if c.IdentityToken != "test-token" {
+		t.Errorf("IdentityToken not set, got %q", c.IdentityToken)
 	}
 	if c.HTTPClient == nil {
 		t.Fatalf("HTTPClient should be initialized")
@@ -117,7 +126,7 @@ func TestGetCertificate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := New(tt.baseURL)
+			c := New(tt.baseURL, 1, "test-identity", "test-token")
 			if tt.clientTwe != nil {
 				tt.clientTwe(c)
 			}
@@ -169,12 +178,12 @@ func TestGenerateCertificateKeypair(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL)
+	c := New(srv.URL, 1, "test-identity", "test-token")
 	resp, err := c.GenerateCertificateKeypair(GenerateCertificateKeypairRequest{Algorithm: 2})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotPath != "/api/v1/certificates/self" {
+	if gotPath != "/api/v1/identity/test-identity/subnet/1/certificates/self" {
 		t.Fatalf("unexpected path: %s", gotPath)
 	}
 	if gotMethod != http.MethodPost {
@@ -189,14 +198,21 @@ func TestGenerateCertificateKeypair(t *testing.T) {
 }
 
 func TestGenerateCertificateKeypair_Errors(t *testing.T) {
+	// empty identity name
+	c := New("http://example.com", 1, "", "test-token")
+	resp, err := c.GenerateCertificateKeypair(GenerateCertificateKeypairRequest{Algorithm: 1})
+	if err == nil || resp != nil {
+		t.Fatalf("expected error on empty identity name, got resp=%+v err=%v", resp, err)
+	}
+
 	// non-200
 	non200 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 	}))
 	defer non200.Close()
 
-	c := New(non200.URL)
-	resp, err := c.GenerateCertificateKeypair(GenerateCertificateKeypairRequest{Algorithm: 1})
+	c = New(non200.URL, 1, "test-identity", "test-token")
+	resp, err = c.GenerateCertificateKeypair(GenerateCertificateKeypairRequest{Algorithm: 1})
 	if err == nil || resp != nil {
 		t.Fatalf("expected error on non-200, got resp=%+v err=%v", resp, err)
 	}
@@ -209,14 +225,14 @@ func TestGenerateCertificateKeypair_Errors(t *testing.T) {
 	}))
 	defer badJSON.Close()
 
-	c = New(badJSON.URL)
+	c = New(badJSON.URL, 1, "test-identity", "test-token")
 	resp, err = c.GenerateCertificateKeypair(GenerateCertificateKeypairRequest{Algorithm: 3})
 	if err == nil || resp != nil {
 		t.Fatalf("expected error on bad json, got resp=%+v err=%v", resp, err)
 	}
 
 	// empty base URL
-	c = New("")
+	c = New("", 1, "test-identity", "test-token")
 	resp, err = c.GenerateCertificateKeypair(GenerateCertificateKeypairRequest{Algorithm: 1})
 	if err == nil || resp != nil {
 		t.Fatalf("expected error on empty base url, got resp=%+v err=%v", resp, err)
@@ -228,7 +244,7 @@ func TestGenerateCertificateKeypair_Errors(t *testing.T) {
 	}))
 	defer slow.Close()
 
-	c = New(slow.URL)
+	c = New(slow.URL, 1, "test-identity", "test-token")
 	c.HTTPClient.Timeout = 50 * time.Millisecond
 	resp, err = c.GenerateCertificateKeypair(GenerateCertificateKeypairRequest{Algorithm: 1})
 	if err == nil || resp != nil {
@@ -252,12 +268,12 @@ func TestGetOwnCertificate(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL)
+	c := New(srv.URL, 1, "test-identity", "test-token")
 	resp, err := c.GetOwnCertificate()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotPath != "/api/v1/certificates/self" {
+	if gotPath != "/api/v1/identity/test-identity/subnet/1/block/latest/certificates/self" {
 		t.Fatalf("unexpected path: %s", gotPath)
 	}
 	if gotMethod != http.MethodGet {
@@ -275,7 +291,7 @@ func TestGetOwnCertificate_Errors(t *testing.T) {
 	}))
 	defer non200.Close()
 
-	c := New(non200.URL)
+	c := New(non200.URL, 1, "test-identity", "test-token")
 	resp, err := c.GetOwnCertificate()
 	if err == nil || resp != nil {
 		t.Fatalf("expected error on non-200, got resp=%+v err=%v", resp, err)
@@ -289,14 +305,14 @@ func TestGetOwnCertificate_Errors(t *testing.T) {
 	}))
 	defer badJSON.Close()
 
-	c = New(badJSON.URL)
+	c = New(badJSON.URL, 1, "test-identity", "test-token")
 	resp, err = c.GetOwnCertificate()
 	if err == nil || resp != nil {
 		t.Fatalf("expected error on bad json, got resp=%+v err=%v", resp, err)
 	}
 
 	// empty base URL
-	c = New("")
+	c = New("", 1, "test-identity", "test-token")
 	resp, err = c.GetOwnCertificate()
 	if err == nil || resp != nil {
 		t.Fatalf("expected error on empty base url, got resp=%+v err=%v", resp, err)
@@ -308,7 +324,7 @@ func TestGetOwnCertificate_Errors(t *testing.T) {
 	}))
 	defer slow.Close()
 
-	c = New(slow.URL)
+	c = New(slow.URL, 1, "test-identity", "test-token")
 	c.HTTPClient.Timeout = 50 * time.Millisecond
 	resp, err = c.GetOwnCertificate()
 	if err == nil || resp != nil {
