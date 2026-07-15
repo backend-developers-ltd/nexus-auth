@@ -201,6 +201,7 @@ func TestNewConfigDefaults(t *testing.T) {
 	os.Args = []string{"program"}
 	t.Setenv("NEXUS_AUTH_LISTEN_ADDR", "")
 	t.Setenv("NEXUS_PYLON_ENDPOINT", "")
+	t.Setenv("NEXUS_PYLON_NETUID", "")
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 	config := NewConfig()
@@ -260,6 +261,39 @@ func TestConfig_CacheDurationInvalidEnv(t *testing.T) {
 	// Should fall back to default
 	if config.CacheDurationMins != 15 {
 		t.Errorf("Expected default cache duration 15 minutes for invalid env, got %d", config.CacheDurationMins)
+	}
+}
+
+// TestConfig_NetUIDDefault tests that NetUID defaults to -1 when not set
+func TestConfig_NetUIDDefault(t *testing.T) {
+	t.Setenv("NEXUS_PYLON_NETUID", "")
+
+	config := NewConfig()
+
+	if config.NetUID != -1 {
+		t.Errorf("Expected default NetUID -1, got %d", config.NetUID)
+	}
+}
+
+// TestConfig_NetUIDFromEnv tests NetUID is read from NEXUS_PYLON_NETUID
+func TestConfig_NetUIDFromEnv(t *testing.T) {
+	t.Setenv("NEXUS_PYLON_NETUID", "42")
+
+	config := NewConfig()
+
+	if config.NetUID != 42 {
+		t.Errorf("Expected NetUID 42 from env, got %d", config.NetUID)
+	}
+}
+
+// TestConfig_NetUIDInvalidEnv tests invalid NEXUS_PYLON_NETUID falls back to -1
+func TestConfig_NetUIDInvalidEnv(t *testing.T) {
+	t.Setenv("NEXUS_PYLON_NETUID", "notanumber")
+
+	config := NewConfig()
+
+	if config.NetUID != -1 {
+		t.Errorf("Expected default NetUID -1 for invalid env, got %d", config.NetUID)
 	}
 }
 

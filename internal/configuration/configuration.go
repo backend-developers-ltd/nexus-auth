@@ -11,6 +11,9 @@ type Config struct {
 	ListenAddr        string
 	PylonEndpoint     string
 	CacheDurationMins int
+	NetUID            int
+	IdentityName      string
+	IdentityToken     string
 }
 
 // NewConfig creates a new configuration instance with defaults and environment variables only
@@ -20,6 +23,7 @@ func NewConfig() *Config {
 		ListenAddr:        ":8080",             // default HTTP port
 		PylonEndpoint:     "http://pylon:8000", // default Pylon endpoint
 		CacheDurationMins: 15,                  // default cache duration in minutes
+		NetUID:            -1,                  // -1 means not set
 	}
 
 	// Environment variables override defaults
@@ -33,6 +37,17 @@ func NewConfig() *Config {
 		if val, err := strconv.Atoi(envCacheDuration); err == nil && val >= 0 {
 			config.CacheDurationMins = val
 		}
+	}
+	if envNetUID := os.Getenv("NEXUS_PYLON_NETUID"); envNetUID != "" {
+		if val, err := strconv.Atoi(envNetUID); err == nil {
+			config.NetUID = val
+		}
+	}
+	if envIdentityName := os.Getenv("NEXUS_PYLON_IDENTITY_NAME"); envIdentityName != "" {
+		config.IdentityName = envIdentityName
+	}
+	if envIdentityToken := os.Getenv("NEXUS_PYLON_IDENTITY_TOKEN"); envIdentityToken != "" {
+		config.IdentityToken = envIdentityToken
 	}
 
 	return config
@@ -48,6 +63,11 @@ func (c *Config) GetPylonEndpoint() string {
 	return c.PylonEndpoint
 }
 
+// GetNetUID returns the subnet UID used for certificate lookup
+func (c *Config) GetNetUID() int {
+	return c.NetUID
+}
+
 // SetListenAddress mutates the listen address; used by CLI layer to override env/defaults.
 func (c *Config) SetListenAddress(addr string) {
 	c.ListenAddr = addr
@@ -56,6 +76,26 @@ func (c *Config) SetListenAddress(addr string) {
 // SetPylonEndpoint mutates the pylon endpoint; used by CLI layer to override env/defaults.
 func (c *Config) SetPylonEndpoint(endpoint string) {
 	c.PylonEndpoint = endpoint
+}
+
+// SetNetUID mutates the subnet UID; used by CLI layer to override env/defaults.
+func (c *Config) SetNetUID(netUID int) {
+	c.NetUID = netUID
+}
+
+// SetIdentityName sets the identity name; only needed for the generate subcommand.
+func (c *Config) SetIdentityName(name string) {
+	c.IdentityName = name
+}
+
+// GetIdentityToken returns the Bearer token for authenticating with pylon identity endpoints.
+func (c *Config) GetIdentityToken() string {
+	return c.IdentityToken
+}
+
+// SetIdentityToken sets the identity token; used by CLI layer to override env/defaults.
+func (c *Config) SetIdentityToken(t string) {
+	c.IdentityToken = t
 }
 
 // GetCacheDuration returns the cache duration as a time.Duration

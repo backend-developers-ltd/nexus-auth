@@ -66,6 +66,10 @@ Configuration precedence: CLI flags > Environment variables > Defaults
 Environment variables:
 - `NEXUS_AUTH_LISTEN_ADDR` (default: `:8080`)
 - `NEXUS_PYLON_ENDPOINT` (default: `http://pylon:8000`)
+- `NEXUS_PYLON_NETUID` (required)
+- `NEXUS_PYLON_IDENTITY_NAME` (required — the Pylon identity name for this node)
+- `NEXUS_PYLON_IDENTITY_TOKEN` (required — Bearer token for authenticating with Pylon identity endpoints)
+- `NEXUS_AUTH_CACHE_DURATION_MINS` (default: `15`)
 
 ## Testing Patterns
 
@@ -79,12 +83,13 @@ Environment variables:
 **Certificate Structure:**
 - Self-signed X.509 certificates with Ed25519 keys
 - SS58 address stored in Subject Organization field
-- Client auth extended key usage
+- Client and server auth extended key usage
 
 **Pylon API:**
-- `GET /api/v1/certificates/{hotkey}` - Fetch public certificate data
-- `GET /api/v1/certificates/self` - Fetch own certificate
-- `POST /api/v1/certificates/self` - Generate new keypair (returns private key)
+- `GET /api/v1/identity/{identity_name}/subnet/{netuid}/block/latest/certificates/{hotkey}` - Fetch public certificate data
+- `GET /api/v1/identity/{identity_name}/subnet/{netuid}/block/latest/certificates/self` - Fetch own certificate
+- `POST /api/v1/identity/{identity_name}/subnet/{netuid}/certificates/self` - Generate new keypair (returns private key)
+- All requests are authenticated with `Authorization: Bearer {NEXUS_PYLON_IDENTITY_TOKEN}`
 
 **Security:**
 - Organization name sanitization prevents path traversal

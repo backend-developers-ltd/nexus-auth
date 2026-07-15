@@ -38,11 +38,11 @@ func run(args []string) int {
 
 func printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println("  nexus-auth run [-listen-addr addr] [-pylon-endpoint url]")
-	fmt.Println("  nexus-auth generate -ss58-address addr [-output-dir dir] [-pylon-endpoint url] [-algorithm n] [-not-after-days n] [-force-recreate]")
+	fmt.Println("  nexus-auth run [-listen-addr addr] [-pylon-endpoint url] [-net-uid n]")
+	fmt.Println("  nexus-auth generate -ss58-address addr -identity-name name [-output-dir dir] [-pylon-endpoint url] [-algorithm n] [-not-after-days n] [-force-recreate]")
 	fmt.Println("")
 	fmt.Println("Subcommands:")
-	fmt.Println("  run       Start the auth server (default behavior previously in main)")
+	fmt.Println("  run       Start the auth server")
 	fmt.Println("  generate  Generate Ed25519 keypair via Pylon and write client.key and client.crt to -output-dir (default ./certs)")
 }
 
@@ -55,6 +55,7 @@ func cmdRun(args []string) int {
 	fs.SetOutput(os.Stderr)
 	listen := fs.String("listen-addr", "", "Address to listen on (overrides env/default)")
 	pylonEndpoint := fs.String("pylon-endpoint", "", "Pylon service endpoint base URL (overrides env/default)")
+	netUID := fs.Int("net-uid", -1, "Subnet UID (overrides NEXUS_PYLON_NETUID env var)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -64,6 +65,13 @@ func cmdRun(args []string) int {
 	}
 	if *pylonEndpoint != "" {
 		config.SetPylonEndpoint(*pylonEndpoint)
+	}
+	if *netUID >= 0 {
+		config.SetNetUID(*netUID)
+	}
+	if config.GetNetUID() < 0 {
+		fmt.Fprintln(os.Stderr, "NEXUS_PYLON_NETUID is required (set env var or use -net-uid flag)")
+		return 2
 	}
 
 	authServer := auth.NewAuth(config)
@@ -80,6 +88,7 @@ func cmdGenerate(args []string) int {
 
 	fs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	identityName := fs.String("identity-name", "", "The name of the identity to use")
 	ss58Address := fs.String("ss58-address", "", "SS58 address to place in certificate Subject Organization (O)")
 	algorithm := fs.Int("algorithm", 1, "Algorithm identifier to request from Pylon")
 	outputDir := fs.String("output-dir", "./certs", "Directory to write client.key and client.crt")
@@ -95,9 +104,16 @@ func cmdGenerate(args []string) int {
 		fs.Usage()
 		return 2
 	}
-
 	if *pylonEndpoint != "" {
 		config.SetPylonEndpoint(*pylonEndpoint)
+	}
+	if strings.TrimSpace(*identityName) != "" {
+		config.SetIdentityName(*identityName)
+	}
+	if strings.TrimSpace(config.IdentityName) == "" {
+		fmt.Fprintln(os.Stderr, "-identity-name is required (or set NEXUS_PYLON_IDENTITY_NAME)")
+		fs.Usage()
+		return 2
 	}
 
 	a := auth.NewAuth(config)
