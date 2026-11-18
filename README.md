@@ -106,7 +106,7 @@ Configure your ingress/reverse proxy (e.g., Nginx/Envoy) to:
 
 ### Prerequisites
 
-- Go 1.24+ installed
+- Go 1.26.10+ installed
 - Docker and Docker Compose
 - Make
 

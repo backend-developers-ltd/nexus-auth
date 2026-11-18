@@ -98,7 +98,7 @@ Environment variables:
 
 ## Build Configuration
 
-- Go version: 1.24+
+- Go version: 1.26.10+
 - golangci-lint version pinned: v2.5.0
 - Binary built with CGO_ENABLED=0 for static linking
 - Build flags: `-a -installsuffix cgo`

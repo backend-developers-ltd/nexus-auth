@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.24.1-alpine AS builder
+FROM golang:1.26.10-alpine AS builder
 
 # Install make for Makefile support
 RUN apk add --no-cache make
